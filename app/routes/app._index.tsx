@@ -87,21 +87,27 @@ export default function DashboardPage() {
 
   return (
     <Page
-      title="GST Invoicing Dashboard"
-      subtitle="Automated Rule 46 Compliant Invoices, GSTR Reports & e-Invoicing"
+      title="GST Billing Dashboard (जीएसटी बिलिंग डैशबोर्ड)"
+      subtitle="भारत सरकार के Rule 46 के अनुसार वैध टैक्स बिल, e-Invoice और GSTR-1 रिपोर्ट"
       primaryAction={{
-        content: "Configure Settings",
-        onAction: () => navigate("/app/settings"),
+        content: "📥 Sync Past Orders (पुराने ऑर्डर्स का बिल बनाएं)",
+        onAction: () => navigate("/app/invoices"),
       }}
+      secondaryActions={[
+        {
+          content: "⚙️ GST Settings (जीएसटी प्रोफाइल)",
+          onAction: () => navigate("/app/settings"),
+        },
+      ]}
     >
       <BlockStack gap="500">
         {!hasConfiguredGST && (
           <Banner
-            title="GST Setup Incomplete"
+            title="GST Setup Incomplete (जीएसटी नंबर दर्ज नहीं है)"
             tone="warning"
-            action={{ content: "Enter GSTIN & Trade Name", onAction: () => navigate("/app/settings") }}
+            action={{ content: "Enter GSTIN & Trade Name (जीएसटी नंबर डालें)", onAction: () => navigate("/app/settings") }}
           >
-            <p>Your store needs a valid GSTIN to generate legally compliant tax invoices under Rule 46 of the CGST Act.</p>
+            <p>वैध GST बिल (Rule 46 Tax Invoice) बनाने के लिए कृपया अपना 15 अंकों का GSTIN और कंपनी का नाम दर्ज करें।</p>
           </Banner>
         )}
 
@@ -109,23 +115,23 @@ export default function DashboardPage() {
         <InlineGrid columns={{ xs: 1, sm: 2, md: 4 }} gap="400">
           <Card>
             <BlockStack gap="200">
-              <Text as="h3" variant="headingSm" tone="subdued">Total Invoices (FY)</Text>
+              <Text as="h3" variant="headingSm" tone="subdued">कुल बिल जारी (Total Bills)</Text>
               <Text as="p" variant="headingLg" fontWeight="bold">{metrics.totalInvoices}</Text>
-              <Text as="p" variant="bodyXs" tone="subdued">{metrics.b2bInvoices} B2B Invoices</Text>
+              <Text as="p" variant="bodyXs" tone="subdued">{metrics.b2bInvoices} B2B फर्म के बिल</Text>
             </BlockStack>
           </Card>
 
           <Card>
             <BlockStack gap="200">
-              <Text as="h3" variant="headingSm" tone="subdued">Taxable Sales</Text>
+              <Text as="h3" variant="headingSm" tone="subdued">बिना टैक्स की बिक्री (Net Sales)</Text>
               <Text as="p" variant="headingLg" fontWeight="bold">₹{metrics.taxableValue.toLocaleString("en-IN")}</Text>
-              <Text as="p" variant="bodyXs" tone="success">Net of GST</Text>
+              <Text as="p" variant="bodyXs" tone="success">टैक्स छोड़कर कुल बिक्री</Text>
             </BlockStack>
           </Card>
 
           <Card>
             <BlockStack gap="200">
-              <Text as="h3" variant="headingSm" tone="subdued">Output GST Collected</Text>
+              <Text as="h3" variant="headingSm" tone="subdued">GST टैक्स एकत्र (Output Tax)</Text>
               <Text as="p" variant="headingLg" fontWeight="bold">₹{metrics.totalTax.toLocaleString("en-IN")}</Text>
               <Text as="p" variant="bodyXs" tone="subdued">CGST: ₹{metrics.cgstTotal.toFixed(0)} | SGST: ₹{metrics.sgstTotal.toFixed(0)} | IGST: ₹{metrics.igstTotal.toFixed(0)}</Text>
             </BlockStack>
@@ -133,9 +139,9 @@ export default function DashboardPage() {
 
           <Card>
             <BlockStack gap="200">
-              <Text as="h3" variant="headingSm" tone="subdued">Gross Revenue</Text>
+              <Text as="h3" variant="headingSm" tone="subdued">कुल आमदनी (Gross Sales)</Text>
               <Text as="p" variant="headingLg" fontWeight="bold">₹{metrics.grandTotal.toLocaleString("en-IN")}</Text>
-              <Text as="p" variant="bodyXs" tone="success">Includes Taxes</Text>
+              <Text as="p" variant="bodyXs" tone="success">टैक्स सहित कुल रकम</Text>
             </BlockStack>
           </Card>
         </InlineGrid>
