@@ -60,6 +60,20 @@ export interface InvoicePreviewProps {
     termsAndConditions?: string | null;
     brandColor?: string | null;
     taxScheme?: string | null;
+    logoUrl?: string | null;
+    // Editable Customizations
+    invoiceTitle?: string | null;
+    invoiceSubtitle?: string | null;
+    showLogo?: boolean;
+    showBankDetails?: boolean;
+    showUpiQr?: boolean;
+    showTerms?: boolean;
+    showHsnSummary?: boolean;
+    showSku?: boolean;
+    showSignature?: boolean;
+    signatureLabel?: string | null;
+    signatureUrl?: string | null;
+    footerNote?: string | null;
   };
   template?: string; // "standard_b2b" | "modern_d2c" | "minimalist" | "thermal_pos"
 }
@@ -71,6 +85,34 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
   const buyerTitle = invoice.buyerTradeName || (invoice.isB2B ? "B2B Business Buyer" : "Retail Customer (B2C)");
 
   const words = numberToIndianWords(invoice.grandTotal);
+
+  // Customization Fallbacks
+  const displayTitle = seller.invoiceTitle || (isComposition ? "BILL OF SUPPLY" : "TAX INVOICE");
+  const displaySubtitle = seller.invoiceSubtitle || (isComposition
+    ? "Composition taxable person, not eligible to collect tax on supplies"
+    : "Original for Recipient | Rule 46 CGST Act");
+  const showLogo = seller.showLogo !== false && Boolean(seller.logoUrl);
+  const showBank = seller.showBankDetails !== false && Boolean(seller.bankAccountNo || seller.bankName);
+  const showUpi = seller.showUpiQr !== false && Boolean(seller.upiId);
+  const showTerms = seller.showTerms !== false && Boolean(seller.termsAndConditions);
+  const showHsnSummary = seller.showHsnSummary !== false;
+  const showSku = Boolean(seller.showSku);
+  const showSignature = seller.showSignature !== false;
+  const signatureLabel = seller.signatureLabel || "Authorized Signatory";
+  const footerNote = seller.footerNote || "Thank you for shopping with us!";
+
+  // Compute HSN Summary Map
+  const hsnSummaryMap = new Map<string, { hsn: string; taxable: number; cgst: number; sgst: number; igst: number; totalTax: number }>();
+  invoice.lineItems.forEach((item) => {
+    const existing = hsnSummaryMap.get(item.hsnCode) || { hsn: item.hsnCode, taxable: 0, cgst: 0, sgst: 0, igst: 0, totalTax: 0 };
+    existing.taxable += item.taxableValue;
+    existing.cgst += item.cgstAmount;
+    existing.sgst += item.sgstAmount;
+    existing.igst += item.igstAmount;
+    existing.totalTax += (item.cgstAmount + item.sgstAmount + item.igstAmount);
+    hsnSummaryMap.set(item.hsnCode, existing);
+  });
+  const hsnSummaryList = Array.from(hsnSummaryMap.values());
 
   // 1. THERMAL POS TEMPLATE (80mm Receipt Roll)
   if (template === "thermal_pos") {
@@ -91,12 +133,17 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
         >
           {/* Store Header */}
           <div style={{ textAlign: "center", marginBottom: "8px" }}>
+            {showLogo && (
+              <div style={{ marginBottom: "6px" }}>
+                <img src={seller.logoUrl!} alt="Logo" style={{ maxHeight: "36px", maxWidth: "120px", objectFit: "contain" }} />
+              </div>
+            )}
             <div style={{ fontWeight: "bold", fontSize: "15px", textTransform: "uppercase" }}>{sellerTitle}</div>
             {seller.addressLine1 && <div style={{ fontSize: "11px" }}>{seller.addressLine1}</div>}
             <div style={{ fontSize: "11px" }}>{seller.city}, {seller.state} - {seller.pincode}</div>
             <div style={{ fontSize: "11px", fontWeight: "bold" }}>GSTIN: {seller.gstin || "N/A"}</div>
             <div style={{ fontSize: "12px", fontWeight: "bold", marginTop: "4px" }}>
-              {isComposition ? "*** BILL OF SUPPLY ***" : "*** TAX INVOICE ***"}
+              *** {displayTitle} ***
             </div>
           </div>
 
@@ -128,6 +175,7 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
                 <tr key={idx} style={{ borderBottom: "1px dotted #ccc" }}>
                   <td style={{ padding: "4px 0", maxWidth: "150px", wordBreak: "break-word" }}>
                     {item.title}
+                    {showSku && item.sku && <div style={{ fontSize: "9px", color: "#888" }}>SKU: {item.sku}</div>}
                     <div style={{ fontSize: "9px", color: "#666" }}>HSN: {item.hsnCode}</div>
                   </td>
                   <td style={{ textAlign: "center", padding: "4px 0" }}>{item.quantity}</td>
@@ -179,8 +227,8 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
           </div>
 
           <div style={{ textAlign: "center", marginTop: "16px", fontSize: "11px", color: "#444" }}>
-            {seller.upiId && <div style={{ marginBottom: "4px" }}>UPI Pay: {seller.upiId}</div>}
-            <div>Thank You For Shopping With Us!</div>
+            {showUpi && <div style={{ marginBottom: "4px" }}>UPI Pay: {seller.upiId}</div>}
+            <div>{footerNote}</div>
           </div>
         </div>
       </div>
@@ -207,6 +255,11 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
           {/* Header */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
             <div>
+              {showLogo && (
+                <div style={{ marginBottom: "8px" }}>
+                  <img src={seller.logoUrl!} alt="Logo" style={{ maxHeight: "42px", maxWidth: "160px", objectFit: "contain" }} />
+                </div>
+              )}
               <div style={{ fontSize: "20px", fontWeight: "700", color: "#111827", letterSpacing: "-0.5px" }}>{sellerTitle}</div>
               <div style={{ color: "#6b7280", fontSize: "12px", marginTop: "4px" }}>{seller.addressLine1}</div>
               <div style={{ color: "#6b7280", fontSize: "12px" }}>{seller.city}, {seller.state} - {seller.pincode}</div>
@@ -214,9 +267,9 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: "20px", fontWeight: "300", color: "#4b5563", letterSpacing: "1px" }}>
-                {isComposition ? "BILL OF SUPPLY" : "TAX INVOICE"}
+                {displayTitle}
               </div>
-              <div style={{ fontSize: "11px", color: "#9ca3af", marginTop: "2px" }}>Rule 46 CGST Act</div>
+              <div style={{ fontSize: "11px", color: "#9ca3af", marginTop: "2px" }}>{displaySubtitle}</div>
               <div style={{ fontSize: "13px", fontWeight: "600", marginTop: "8px" }}>#{invoice.invoiceNumber}</div>
               <div style={{ fontSize: "12px", color: "#6b7280" }}>Date: {invoice.date}</div>
             </div>
@@ -246,6 +299,7 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
             <thead>
               <tr style={{ borderBottom: "1.5px solid #111827", textAlign: "left", color: "#111827" }}>
                 <th style={{ padding: "8px 4px", fontWeight: "600" }}>Description</th>
+                {showSku && <th style={{ padding: "8px 4px", textAlign: "center", fontWeight: "600" }}>SKU</th>}
                 <th style={{ padding: "8px 4px", textAlign: "center", fontWeight: "600" }}>HSN</th>
                 <th style={{ padding: "8px 4px", textAlign: "center", fontWeight: "600" }}>Qty</th>
                 <th style={{ padding: "8px 4px", textAlign: "right", fontWeight: "600" }}>Rate</th>
@@ -258,27 +312,26 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
               {invoice.lineItems.map((item, idx) => (
                 <tr key={idx} style={{ borderBottom: "1px solid #f3f4f6" }}>
                   <td style={{ padding: "10px 4px" }}>
-                    <div style={{ fontWeight: "500" }}>{item.title}</div>
+                    <div style={{ fontWeight: "600" }}>{item.title}</div>
                     {item.variantTitle && <div style={{ fontSize: "11px", color: "#9ca3af" }}>{item.variantTitle}</div>}
                   </td>
+                  {showSku && <td style={{ padding: "10px 4px", textAlign: "center", color: "#6b7280" }}>{item.sku || "-"}</td>}
                   <td style={{ padding: "10px 4px", textAlign: "center", color: "#6b7280" }}>{item.hsnCode}</td>
                   <td style={{ padding: "10px 4px", textAlign: "center" }}>{item.quantity}</td>
                   <td style={{ padding: "10px 4px", textAlign: "right" }}>₹{item.unitPrice.toFixed(2)}</td>
                   <td style={{ padding: "10px 4px", textAlign: "right" }}>₹{item.taxableValue.toFixed(2)}</td>
-                  <td style={{ padding: "10px 4px", textAlign: "right", color: "#6b7280" }}>
-                    {item.gstRate}% (₹{(item.cgstAmount + item.sgstAmount + item.igstAmount).toFixed(2)})
-                  </td>
+                  <td style={{ padding: "10px 4px", textAlign: "right", color: "#6b7280" }}>{item.gstRate}%</td>
                   <td style={{ padding: "10px 4px", textAlign: "right", fontWeight: "600" }}>₹{item.totalAmount.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
 
-          {/* Totals Section */}
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
+          {/* Subtotals & Totals */}
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
             <div style={{ width: "260px", fontSize: "12px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", color: "#4b5563" }}>
-                <span>Taxable Amount:</span>
+                <span>Taxable Subtotal:</span>
                 <span>₹{invoice.subtotalTaxable.toFixed(2)}</span>
               </div>
               {invoice.isInterState ? (
@@ -314,12 +367,27 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
 
           <div style={{ borderBottom: "1px solid #e5e7eb", margin: "24px 0" }} />
 
-          {/* Words & Bank */}
-          <div style={{ fontSize: "11px", color: "#6b7280" }}>
-            <div><strong>Amount in words:</strong> {words}</div>
-            {seller.bankAccountNo && (
-              <div style={{ marginTop: "6px" }}>
-                Bank: {seller.bankName} | A/C: {seller.bankAccountNo} | IFSC: {seller.bankIfsc} {seller.upiId && `| UPI: ${seller.upiId}`}
+          {/* Words, Bank & Signature */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", fontSize: "11px", color: "#6b7280" }}>
+            <div>
+              <div><strong>Amount in words:</strong> {words}</div>
+              {showBank && (
+                <div style={{ marginTop: "6px" }}>
+                  Bank: {seller.bankName} | A/C: {seller.bankAccountNo} | IFSC: {seller.bankIfsc} {showUpi && `| UPI: ${seller.upiId}`}
+                </div>
+              )}
+              <div style={{ marginTop: "4px", fontStyle: "italic" }}>{footerNote}</div>
+            </div>
+            {showSignature && (
+              <div style={{ textAlign: "right" }}>
+                {seller.signatureUrl && (
+                  <div style={{ marginBottom: "4px" }}>
+                    <img src={seller.signatureUrl} alt="Signature" style={{ maxHeight: "40px", maxWidth: "120px", objectFit: "contain" }} />
+                  </div>
+                )}
+                <div style={{ borderTop: "1px solid #9ca3af", paddingTop: "4px", minWidth: "140px", textAlign: "center" }}>
+                  {signatureLabel}
+                </div>
               </div>
             )}
           </div>
@@ -348,12 +416,19 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
           {/* Branded Header Banner */}
           <div style={{ background: brandColor, color: "#fff", padding: "24px 32px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div style={{ fontSize: "22px", fontWeight: "800", letterSpacing: "0.5px" }}>
-                  {isComposition ? "BILL OF SUPPLY" : "TAX INVOICE"}
-                </div>
-                <div style={{ fontSize: "12px", opacity: 0.9, marginTop: "2px" }}>
-                  Original for Recipient • Rule 46 CGST Act
+              <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                {showLogo && (
+                  <div style={{ background: "#ffffff", padding: "6px 12px", borderRadius: "8px" }}>
+                    <img src={seller.logoUrl!} alt="Logo" style={{ maxHeight: "36px", maxWidth: "120px", objectFit: "contain", display: "block" }} />
+                  </div>
+                )}
+                <div>
+                  <div style={{ fontSize: "22px", fontWeight: "800", letterSpacing: "0.5px" }}>
+                    {displayTitle}
+                  </div>
+                  <div style={{ fontSize: "12px", opacity: 0.9, marginTop: "2px" }}>
+                    {displaySubtitle}
+                  </div>
                 </div>
               </div>
               <div style={{ textAlign: "right" }}>
@@ -362,7 +437,7 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: "12px", marginTop: "16px" }}>
+            <div style={{ display: "flex", gap: "12px", marginTop: "16px", flexWrap: "wrap" }}>
               <span style={{ background: "rgba(255,255,255,0.2)", padding: "4px 10px", borderRadius: "6px", fontSize: "12px" }}>
                 Invoice: <strong>{invoice.invoiceNumber}</strong>
               </span>
@@ -372,6 +447,11 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
               <span style={{ background: "rgba(255,255,255,0.2)", padding: "4px 10px", borderRadius: "6px", fontSize: "12px" }}>
                 Order: <strong>#{invoice.orderNumber}</strong>
               </span>
+              {invoice.ewayBillRequired && (
+                <span style={{ background: "#ef4444", color: "#fff", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold" }}>
+                  e-Way Bill &gt; ₹50,000
+                </span>
+              )}
             </div>
           </div>
 
@@ -404,6 +484,7 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
               <thead>
                 <tr style={{ background: "#f1f5f9", color: "#334155" }}>
                   <th style={{ padding: "10px 12px", textAlign: "left", borderRadius: "6px 0 0 6px" }}>Item Description</th>
+                  {showSku && <th style={{ padding: "10px 8px", textAlign: "center" }}>SKU</th>}
                   <th style={{ padding: "10px 8px", textAlign: "center" }}>HSN</th>
                   <th style={{ padding: "10px 8px", textAlign: "center" }}>Qty</th>
                   <th style={{ padding: "10px 8px", textAlign: "right" }}>Rate</th>
@@ -419,6 +500,7 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
                       <div style={{ fontWeight: "600", color: "#0f172a" }}>{item.title}</div>
                       {item.variantTitle && <div style={{ fontSize: "11px", color: "#64748b" }}>{item.variantTitle}</div>}
                     </td>
+                    {showSku && <td style={{ padding: "10px 8px", textAlign: "center", color: "#64748b" }}>{item.sku || "-"}</td>}
                     <td style={{ padding: "10px 8px", textAlign: "center", color: "#64748b" }}>{item.hsnCode}</td>
                     <td style={{ padding: "10px 8px", textAlign: "center", fontWeight: "600" }}>{item.quantity}</td>
                     <td style={{ padding: "10px 8px", textAlign: "right" }}>₹{item.unitPrice.toFixed(2)}</td>
@@ -435,14 +517,16 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
             </table>
 
             {/* Total Card */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "20px" }}>
               <div style={{ fontSize: "12px", color: "#64748b", maxWidth: "380px" }}>
                 <div><strong>Amount in Words:</strong> {words}</div>
-                {seller.bankAccountNo && (
+                {showBank && (
                   <div style={{ marginTop: "8px", padding: "8px 12px", background: "#f8fafc", borderRadius: "6px" }}>
                     Bank: <strong>{seller.bankName}</strong> | A/C: <strong>{seller.bankAccountNo}</strong> | IFSC: <strong>{seller.bankIfsc}</strong>
+                    {showUpi && <div>UPI ID: <strong>{seller.upiId}</strong></div>}
                   </div>
                 )}
+                <div style={{ marginTop: "8px", fontStyle: "italic" }}>{footerNote}</div>
               </div>
 
               <div style={{ width: "240px", background: "#f8fafc", padding: "16px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
@@ -469,33 +553,46 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
                 )}
                 {invoice.roundOffAmount !== 0 && (
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", margin: "3px 0", color: "#64748b" }}>
-                    <span>Round-off:</span>
+                    <span>Round-off (Sec 170):</span>
                     <span>₹{invoice.roundOffAmount.toFixed(2)}</span>
                   </div>
                 )}
-                <div style={{ borderTop: "2px solid #cbd5e1", margin: "8px 0" }} />
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "16px", fontWeight: "800", color: brandColor }}>
-                  <span>Grand Total:</span>
+                <div style={{ borderTop: "2px solid #0f172a", margin: "8px 0" }} />
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "16px", fontWeight: "800", color: "#0f172a" }}>
+                  <span>Total Payable:</span>
                   <span>₹{invoice.grandTotal.toFixed(2)}</span>
                 </div>
               </div>
             </div>
+
+            {/* Signature & Declaration */}
+            {showSignature && (
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
+                <div style={{ textAlign: "center", minWidth: "160px" }}>
+                  {seller.signatureUrl && (
+                    <img src={seller.signatureUrl} alt="Signature" style={{ maxHeight: "40px", maxWidth: "120px", objectFit: "contain", marginBottom: "4px" }} />
+                  )}
+                  <div style={{ borderTop: "1px solid #cbd5e1", paddingTop: "4px", fontSize: "11px", fontWeight: "600", color: "#475569" }}>
+                    {signatureLabel}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
     );
   }
 
-  // 4. STANDARD INDIAN B2B TEMPLATE (Default Rule 46 Compliant)
+  // 4. STANDARD TRADITIONAL B2B TEMPLATE (Default Rule 46 Statutory)
   return (
     <div style={{ display: "flex", justifyContent: "center", padding: "20px 0", background: "#f1f2f4" }}>
       <div
         id="invoice-printable-area"
         style={{
-          width: "740px",
+          width: "780px",
           background: "#ffffff",
-          padding: "32px",
-          border: "2px solid #334155",
+          padding: "24px",
           fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
           fontSize: "12px",
           color: "#0f172a",
@@ -503,16 +600,22 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
           lineHeight: "1.4",
         }}
       >
-        {/* Title */}
-        <div style={{ textAlign: "center", borderBottom: "1.5px solid #334155", paddingBottom: "8px", marginBottom: "12px" }}>
-          <div style={{ fontSize: "18px", fontWeight: "800", letterSpacing: "1px" }}>
-            {isComposition ? "BILL OF SUPPLY" : "TAX INVOICE"}
+        {/* Header with optional Logo */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1.5px solid #334155", paddingBottom: "10px", marginBottom: "12px" }}>
+          {showLogo ? (
+            <div style={{ maxWidth: "160px" }}>
+              <img src={seller.logoUrl!} alt="Logo" style={{ maxHeight: "48px", maxWidth: "160px", objectFit: "contain" }} />
+            </div>
+          ) : <div />}
+          <div style={{ textAlign: "center", flex: 1 }}>
+            <div style={{ fontSize: "18px", fontWeight: "800", letterSpacing: "1px", color: brandColor }}>
+              {displayTitle}
+            </div>
+            <div style={{ fontSize: "11px", color: "#475569" }}>
+              {displaySubtitle}
+            </div>
           </div>
-          <div style={{ fontSize: "11px", color: "#475569" }}>
-            {isComposition
-              ? "Composition taxable person, not eligible to collect tax on supplies"
-              : "(Issued under Rule 46 of the CGST Rules, 2017 - Original for Recipient)"}
-          </div>
+          <div style={{ width: showLogo ? "160px" : "0px", textAlign: "right" }} />
         </div>
 
         {/* 2-Column Seller / Invoice Metadata */}
@@ -564,6 +667,7 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
             <tr style={{ background: brandColor, color: "#fff" }}>
               <th style={{ border: "1px solid #475569", padding: "6px 4px", textAlign: "center" }}>#</th>
               <th style={{ border: "1px solid #475569", padding: "6px 8px", textAlign: "left" }}>Item Description</th>
+              {showSku && <th style={{ border: "1px solid #475569", padding: "6px 4px", textAlign: "center" }}>SKU</th>}
               <th style={{ border: "1px solid #475569", padding: "6px 4px", textAlign: "center" }}>HSN/SAC</th>
               <th style={{ border: "1px solid #475569", padding: "6px 4px", textAlign: "center" }}>Qty</th>
               <th style={{ border: "1px solid #475569", padding: "6px 6px", textAlign: "right" }}>Rate</th>
@@ -590,6 +694,7 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
                   <div style={{ fontWeight: "600" }}>{item.title}</div>
                   {item.variantTitle && <div style={{ fontSize: "10px", color: "#64748b" }}>{item.variantTitle}</div>}
                 </td>
+                {showSku && <td style={{ border: "1px solid #cbd5e1", textAlign: "center", padding: "6px 4px", color: "#64748b" }}>{item.sku || "-"}</td>}
                 <td style={{ border: "1px solid #cbd5e1", textAlign: "center", padding: "6px 4px" }}>{item.hsnCode}</td>
                 <td style={{ border: "1px solid #cbd5e1", textAlign: "center", padding: "6px 4px", fontWeight: "600" }}>{item.quantity}</td>
                 <td style={{ border: "1px solid #cbd5e1", textAlign: "right", padding: "6px 6px" }}>{item.unitPrice.toFixed(2)}</td>
@@ -611,19 +716,62 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
           </tbody>
         </table>
 
+        {/* HSN Summary Statutory Breakdown Table */}
+        {showHsnSummary && (
+          <div style={{ marginBottom: "12px" }}>
+            <div style={{ fontSize: "10px", fontWeight: "700", color: "#475569", textTransform: "uppercase", marginBottom: "4px" }}>
+              HSN / SAC Wise Statutory Tax Summary
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px", border: "1px solid #cbd5e1" }}>
+              <thead>
+                <tr style={{ background: "#f8fafc", color: "#334155" }}>
+                  <th style={{ border: "1px solid #cbd5e1", padding: "4px" }}>HSN/SAC</th>
+                  <th style={{ border: "1px solid #cbd5e1", padding: "4px", textAlign: "right" }}>Taxable Amt</th>
+                  {invoice.isInterState ? (
+                    <th style={{ border: "1px solid #cbd5e1", padding: "4px", textAlign: "right" }}>IGST</th>
+                  ) : (
+                    <>
+                      <th style={{ border: "1px solid #cbd5e1", padding: "4px", textAlign: "right" }}>CGST</th>
+                      <th style={{ border: "1px solid #cbd5e1", padding: "4px", textAlign: "right" }}>SGST</th>
+                    </>
+                  )}
+                  <th style={{ border: "1px solid #cbd5e1", padding: "4px", textAlign: "right" }}>Total Tax</th>
+                </tr>
+              </thead>
+              <tbody>
+                {hsnSummaryList.map((h, i) => (
+                  <tr key={i}>
+                    <td style={{ border: "1px solid #cbd5e1", padding: "4px", textAlign: "center" }}>{h.hsn}</td>
+                    <td style={{ border: "1px solid #cbd5e1", padding: "4px", textAlign: "right" }}>₹{h.taxable.toFixed(2)}</td>
+                    {invoice.isInterState ? (
+                      <td style={{ border: "1px solid #cbd5e1", padding: "4px", textAlign: "right" }}>₹{h.igst.toFixed(2)}</td>
+                    ) : (
+                      <>
+                        <td style={{ border: "1px solid #cbd5e1", padding: "4px", textAlign: "right" }}>₹{h.cgst.toFixed(2)}</td>
+                        <td style={{ border: "1px solid #cbd5e1", padding: "4px", textAlign: "right" }}>₹{h.sgst.toFixed(2)}</td>
+                      </>
+                    )}
+                    <td style={{ border: "1px solid #cbd5e1", padding: "4px", textAlign: "right", fontWeight: "600" }}>₹{h.totalTax.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {/* Summary Block */}
         <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", border: "1px solid #cbd5e1", marginBottom: "12px" }}>
           <div style={{ padding: "10px", borderRight: "1px solid #cbd5e1" }}>
             <div><strong>Amount in words:</strong></div>
             <div style={{ fontStyle: "italic", marginTop: "2px", color: "#334155" }}>{words}</div>
 
-            {seller.bankAccountNo && (
+            {showBank && (
               <div style={{ marginTop: "12px", fontSize: "11px" }}>
                 <div style={{ fontWeight: "700", textDecoration: "underline" }}>Bank Transfer Details:</div>
                 <div>Bank: {seller.bankName}</div>
                 <div>Account No: {seller.bankAccountNo}</div>
                 <div>IFSC Code: {seller.bankIfsc}</div>
-                {seller.upiId && <div>UPI ID: {seller.upiId}</div>}
+                {showUpi && <div>UPI ID: {seller.upiId}</div>}
               </div>
             )}
           </div>
@@ -664,17 +812,34 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
           </div>
         </div>
 
-        {/* Declaration & Signatory */}
+        {/* Declaration, Terms & Signatory */}
         <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", border: "1px solid #cbd5e1", padding: "10px" }}>
           <div>
+            {showTerms && (
+              <div style={{ marginBottom: "6px" }}>
+                <div style={{ fontSize: "10px", fontWeight: "700" }}>Terms & Conditions:</div>
+                <div style={{ fontSize: "10px", color: "#64748b", whiteSpace: "pre-line" }}>
+                  {seller.termsAndConditions}
+                </div>
+              </div>
+            )}
             <div style={{ fontSize: "10px", fontWeight: "700" }}>Declaration:</div>
             <div style={{ fontSize: "10px", color: "#64748b" }}>
-              We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.
+              {footerNote}
             </div>
           </div>
-          <div style={{ textAlign: "right", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+          <div style={{ textAlign: "right", display: "flex", flexDirection: "column", justifyContent: "space-between", alignItems: "flex-end" }}>
             <div style={{ fontSize: "11px", fontWeight: "700" }}>For {sellerTitle}</div>
-            <div style={{ fontSize: "10px", color: "#64748b", marginTop: "24px" }}>(Authorized Signatory)</div>
+            {showSignature && (
+              <div>
+                {seller.signatureUrl && (
+                  <div style={{ marginBottom: "4px" }}>
+                    <img src={seller.signatureUrl} alt="Signature" style={{ maxHeight: "36px", maxWidth: "120px", objectFit: "contain" }} />
+                  </div>
+                )}
+                <div style={{ fontSize: "10px", color: "#64748b" }}>({signatureLabel})</div>
+              </div>
+            )}
           </div>
         </div>
       </div>

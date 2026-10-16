@@ -65,6 +65,19 @@ model StoreSetting {
   bankIfsc            String?
   upiId               String?
 
+  // Editable Template Customizations
+  invoiceTitle        String?  @default("TAX INVOICE")
+  invoiceSubtitle     String?  @default("Original for Recipient | Rule 46 CGST Act")
+  showLogo            Boolean  @default(true)
+  showBankDetails     Boolean  @default(true)
+  showUpiQr           Boolean  @default(true)
+  showTerms           Boolean  @default(true)
+  showHsnSummary      Boolean  @default(true)
+  showSku             Boolean  @default(false)
+  showSignature       Boolean  @default(true)
+  signatureLabel      String?  @default("Authorized Signatory")
+  footerNote          String?  @default("Thank you for shopping with us!")
+
   // B2B Routing & Series Rules
   b2bInvoicePrefix      String?  @default("B2B/{FY}/")
   nextB2BInvoiceNumber  Int      @default(1)

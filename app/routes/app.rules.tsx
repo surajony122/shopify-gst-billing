@@ -252,12 +252,17 @@ export default function InvoiceRulesPage() {
             {selectedTab === 0 && (
               <Box padding="500">
                 <BlockStack gap="500">
-                  <BlockStack gap="200">
-                    <Text as="h2" variant="headingMd">Available Invoice Templates</Text>
-                    <Text as="p" tone="subdued">
-                      Choose your default invoice style or configure rules to switch templates dynamically based on order type or cart amount.
-                    </Text>
-                  </BlockStack>
+                  <InlineStack align="space-between" blockAlign="center">
+                    <BlockStack gap="100">
+                      <Text as="h2" variant="headingMd">Available Invoice Templates</Text>
+                      <Text as="p" tone="subdued">
+                        Choose your default invoice style or configure rules to switch templates dynamically.
+                      </Text>
+                    </BlockStack>
+                    <Button variant="primary" url="/app/templates">
+                      Open Template Editor & Customizer
+                    </Button>
+                  </InlineStack>
 
                   {/* Brand Color Chooser */}
                   <Card>

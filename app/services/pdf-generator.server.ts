@@ -69,9 +69,15 @@ export interface InvoicePDFData {
   };
   terms?: string;
   template?: string; // "standard_b2b" | "modern_d2c" | "minimalist" | "thermal_pos"
-  brandColor?: string;
-  taxScheme?: string; // "regular" | "composition"
   ewayBillRequired?: boolean;
+  customization?: {
+    invoiceTitle?: string;
+    invoiceSubtitle?: string;
+    showBankDetails?: boolean;
+    showTerms?: boolean;
+    signatureLabel?: string;
+    footerNote?: string;
+  };
 }
 
 /**
@@ -517,6 +523,10 @@ export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffe
 
   const brandRgb = hexToRgb(data.brandColor || "#212B36");
   const isComposition = data.taxScheme === "composition";
+  const docTitle = data.customization?.invoiceTitle || (isComposition ? "BILL OF SUPPLY" : "TAX INVOICE");
+  const docSubtitle = data.customization?.invoiceSubtitle || (isComposition
+    ? "Composition taxable person, not eligible to collect tax on supplies"
+    : "(Issued under Rule 46 of the CGST Rules, 2017 - Original for Recipient)");
 
   if (template === "modern_d2c") {
     // Modern D2C Header Banner with brand color
@@ -526,18 +536,12 @@ export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffe
     doc.setFont("helvetica", "bold");
     doc.setFontSize(18);
     doc.setTextColor(255, 255, 255);
-    doc.text(isComposition ? "BILL OF SUPPLY" : "TAX INVOICE", 14, 15);
+    doc.text(docTitle, 14, 15);
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8.5);
     doc.setTextColor(230, 230, 230);
-    doc.text(
-      isComposition
-        ? "Composition taxable person, not eligible to collect tax on supplies"
-        : "Original for Recipient | Rule 46 CGST Act",
-      14,
-      21
-    );
+    doc.text(docSubtitle, 14, 21);
 
     y = 35;
   } else {
@@ -545,19 +549,12 @@ export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffe
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
     doc.setTextColor(brandRgb[0], brandRgb[1], brandRgb[2]);
-    doc.text(isComposition ? "BILL OF SUPPLY" : "TAX INVOICE", pageWidth / 2, y, { align: "center" });
+    doc.text(docTitle, pageWidth / 2, y, { align: "center" });
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(100, 100, 100);
-    doc.text(
-      isComposition
-        ? "Composition taxable person, not eligible to collect tax on supplies"
-        : "(Issued under Rule 46 of the CGST Rules, 2017)",
-      pageWidth / 2,
-      y + 4,
-      { align: "center" }
-    );
+    doc.text(docSubtitle, pageWidth / 2, y + 4, { align: "center" });
     y += 10;
 
     // Outer border line for traditional format

@@ -80,6 +80,14 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
       brandColor: setting?.brandColor || "#212B36",
       taxScheme: setting?.taxScheme || "regular",
       ewayBillRequired: (invoice as any).ewayBillRequired || false,
+      customization: {
+        invoiceTitle: setting?.invoiceTitle || undefined,
+        invoiceSubtitle: setting?.invoiceSubtitle || undefined,
+        showBankDetails: setting?.showBankDetails ?? true,
+        showTerms: setting?.showTerms ?? true,
+        signatureLabel: setting?.signatureLabel || undefined,
+        footerNote: setting?.footerNote || undefined,
+      },
     });
 
     return new Response(pdfBuffer, {

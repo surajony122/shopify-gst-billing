@@ -271,6 +271,7 @@ export default function SettingsPage() {
                 options={[
                   { label: "Standard Indian B2B (Traditional Tax Invoice with Tax Grid & Declaration)", value: "standard_b2b" },
                   { label: "Modern D2C Clean (Branded Layout with Header Banner)", value: "modern_d2c" },
+                  { label: "Minimalist Studio (Monochrome & Hairline Dividers)", value: "minimalist" },
                   { label: "Compact Thermal Receipt (80mm POS Slip / Packing Slip)", value: "thermal_pos" },
                 ]}
                 value={form.invoiceTemplate || "standard_b2b"}
@@ -284,6 +285,11 @@ export default function SettingsPage() {
                 autoComplete="off"
               />
             </InlineGrid>
+            <InlineStack align="end">
+              <Button url="/app/templates" variant="primary">
+                Open Live Interactive Template Customizer
+              </Button>
+            </InlineStack>
           </BlockStack>
         </Card>
 
