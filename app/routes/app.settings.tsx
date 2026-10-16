@@ -13,6 +13,7 @@ import {
   Text,
   Checkbox,
   InlineStack,
+  Select,
 } from "@shopify/polaris";
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
@@ -36,6 +37,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       pincode: "",
       invoicePrefix: "INV/{FY}/",
       nextInvoiceNumber: 1,
+      invoiceTemplate: "standard_b2b",
+      brandColor: "#212B36",
+      taxScheme: "regular",
+      autoGenerateTrigger: "on_fulfill",
+      shippingGstRate: 18.0,
+      b2bStrictValidation: true,
       bankName: "",
       bankAccountNo: "",
       bankIfsc: "",
@@ -69,6 +76,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       city: formData.get("city") as string,
       pincode: formData.get("pincode") as string,
       invoicePrefix: formData.get("invoicePrefix") as string || "INV/{FY}/",
+      invoiceTemplate: formData.get("invoiceTemplate") as string || "standard_b2b",
+      brandColor: formData.get("brandColor") as string || "#212B36",
+      taxScheme: formData.get("taxScheme") as string || "regular",
+      autoGenerateTrigger: formData.get("autoGenerateTrigger") as string || "on_fulfill",
+      shippingGstRate: parseFloat(formData.get("shippingGstRate") as string || "18"),
+      b2bStrictValidation: formData.get("b2bStrictValidation") === "true",
       bankName: formData.get("bankName") as string,
       bankAccountNo: formData.get("bankAccountNo") as string,
       bankIfsc: formData.get("bankIfsc") as string,
@@ -89,6 +102,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       city: formData.get("city") as string,
       pincode: formData.get("pincode") as string,
       invoicePrefix: formData.get("invoicePrefix") as string || "INV/{FY}/",
+      invoiceTemplate: formData.get("invoiceTemplate") as string || "standard_b2b",
+      brandColor: formData.get("brandColor") as string || "#212B36",
+      taxScheme: formData.get("taxScheme") as string || "regular",
+      autoGenerateTrigger: formData.get("autoGenerateTrigger") as string || "on_fulfill",
+      shippingGstRate: parseFloat(formData.get("shippingGstRate") as string || "18"),
+      b2bStrictValidation: formData.get("b2bStrictValidation") === "true",
       bankName: formData.get("bankName") as string,
       bankAccountNo: formData.get("bankAccountNo") as string,
       bankIfsc: formData.get("bankIfsc") as string,
@@ -100,7 +119,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     },
   });
 
-  return json({ success: true, message: "Settings saved successfully!" });
+  return json({ success: true, message: "Settings saved successfully (सेटिंग्स सुरक्षित हो गईं)!" });
 };
 
 export default function SettingsPage() {
@@ -236,6 +255,80 @@ export default function SettingsPage() {
               label="Automatically Email PDF Invoice to Customer upon Fulfillment"
               checked={Boolean(form.autoEmailInvoice)}
               onChange={(checked) => setForm({ ...form, autoEmailInvoice: checked })}
+            />
+          </BlockStack>
+        </Card>
+
+        {/* Invoice Templates & Design */}
+        <Card>
+          <BlockStack gap="400">
+            <Text as="h2" variant="headingMd">Invoice Templates & Design (बिल का प्रारूप व स्टाइल)</Text>
+            <Text as="p" tone="subdued">Choose the visual design layout and primary brand accent color for your invoices:</Text>
+            <Divider />
+            <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+              <Select
+                label="Invoice Design Template"
+                options={[
+                  { label: "Standard Indian B2B (पारंपरिक पक्का बिल - बॉक्स और कानूनी घोषणा)", value: "standard_b2b" },
+                  { label: "Modern D2C Clean (मॉडर्न D2C ब्रांडेड बिल - हेडर बैनर)", value: "modern_d2c" },
+                  { label: "Compact Thermal Receipt (थर्मल प्रिंटर / पार्सल स्लिप - 80mm)", value: "thermal_pos" },
+                ]}
+                value={form.invoiceTemplate || "standard_b2b"}
+                onChange={(val) => setForm({ ...form, invoiceTemplate: val })}
+              />
+              <TextField
+                label="Primary Brand Color (Hex Code)"
+                value={form.brandColor || "#212B36"}
+                onChange={(val) => setForm({ ...form, brandColor: val })}
+                helpText="e.g. #212B36 (Dark Slate), #1B365D (Navy Blue), #108043 (Shopify Green)"
+                autoComplete="off"
+              />
+            </InlineGrid>
+          </BlockStack>
+        </Card>
+
+        {/* GST Rules & Business Policies */}
+        <Card>
+          <BlockStack gap="400">
+            <Text as="h2" variant="headingMd">GST Rules & Automation (जीएसटी नियम व टैक्स नीतियां)</Text>
+            <Text as="p" tone="subdued">Configure statutory compliance rules for invoice generation and tax application:</Text>
+            <Divider />
+            <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+              <Select
+                label="GST Registration Scheme"
+                options={[
+                  { label: "Regular Taxpayer (Rule 46 Tax Invoice with CGST/SGST/IGST)", value: "regular" },
+                  { label: "Composition Scheme (Rule 49 Bill of Supply - No Tax Collected)", value: "composition" },
+                ]}
+                value={form.taxScheme || "regular"}
+                onChange={(val) => setForm({ ...form, taxScheme: val })}
+                helpText="Composition dealers issue a Bill of Supply instead of Tax Invoice"
+              />
+              <Select
+                label="Invoice Generation Trigger Rule"
+                options={[
+                  { label: "Generate only when Order is Fulfilled / Shipped (अनुशंसित)", value: "on_fulfill" },
+                  { label: "Generate immediately when Order is Placed", value: "on_create" },
+                ]}
+                value={form.autoGenerateTrigger || "on_fulfill"}
+                onChange={(val) => setForm({ ...form, autoGenerateTrigger: val })}
+              />
+              <Select
+                label="Shipping & COD Charges GST Rate"
+                options={[
+                  { label: "18% Standard GST on Shipping Fees", value: "18" },
+                  { label: "0% GST Exempt (Free/Included Shipping)", value: "0" },
+                  { label: "5% Reduced Rate on Delivery", value: "5" },
+                ]}
+                value={String(form.shippingGstRate ?? 18)}
+                onChange={(val) => setForm({ ...form, shippingGstRate: parseFloat(val) })}
+              />
+            </InlineGrid>
+
+            <Checkbox
+              label="Strict B2B Check: Verify that Buyer State matches GSTIN State Code prefix (prevents invalid Input Tax Credit rejections)"
+              checked={Boolean(form.b2bStrictValidation)}
+              onChange={(checked) => setForm({ ...form, b2bStrictValidation: checked })}
             />
           </BlockStack>
         </Card>

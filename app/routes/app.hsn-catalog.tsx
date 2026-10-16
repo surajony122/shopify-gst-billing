@@ -13,6 +13,8 @@ import {
   InlineStack,
   Text,
   Badge,
+  Tabs,
+  Box,
 } from "@shopify/polaris";
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
@@ -22,10 +24,49 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, admin } = await authenticate.admin(request);
   const shop = session.shop;
 
-  // Fetch catalog from our DB
+  // 1. Fetch individual product/variant mappings from our DB
   const catalog = await prisma.hsnCatalog.findMany({
     where: { shop },
     orderBy: { productTitle: "asc" },
+  });
+
+  // 2. Fetch saved collection HSN mappings
+  const collectionMappings = await prisma.collectionHsn.findMany({
+    where: { shop },
+  });
+
+  // 3. Fetch Shopify Collections via GraphQL
+  let shopifyCollections: Array<{ id: string; title: string }> = [];
+  try {
+    const res = await admin.graphql(`
+      query getCollections {
+        collections(first: 50) {
+          nodes {
+            id
+            title
+          }
+        }
+      }
+    `);
+    const jsonRes = await res.json();
+    shopifyCollections = jsonRes.data?.collections?.nodes || [];
+  } catch (err) {
+    console.error("Error fetching collections:", err);
+  }
+
+  // Merge Shopify collections with saved HSN mappings
+  const mergedCollections = shopifyCollections.map((col) => {
+    const numericId = col.id.replace("gid://shopify/Collection/", "");
+    const mapping = collectionMappings.find(
+      (m) => m.shopifyCollectionId === numericId || m.shopifyCollectionId === col.id
+    );
+    return {
+      id: numericId,
+      gid: col.id,
+      title: col.title,
+      hsnCode: mapping?.hsnCode || "999999",
+      gstRate: String(mapping?.gstRate ?? 18),
+    };
   });
 
   return json({
@@ -38,6 +79,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       hsnCode: item.hsnCode,
       gstRate: String(item.gstRate),
     })),
+    collections: mergedCollections,
   });
 };
 
@@ -46,6 +88,39 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const shop = session.shop;
   const formData = await request.formData();
   const intent = formData.get("intent");
+
+  if (intent === "save_collection_hsn") {
+    const collectionId = formData.get("collectionId") as string;
+    const collectionTitle = formData.get("collectionTitle") as string;
+    const hsnCode = (formData.get("hsnCode") as string).trim();
+    const gstRate = parseFloat(formData.get("gstRate") as string || "18");
+
+    await prisma.collectionHsn.upsert({
+      where: {
+        shop_shopifyCollectionId: {
+          shop,
+          shopifyCollectionId: collectionId,
+        },
+      },
+      update: {
+        hsnCode,
+        gstRate,
+        collectionTitle,
+      },
+      create: {
+        shop,
+        shopifyCollectionId: collectionId,
+        collectionTitle,
+        hsnCode,
+        gstRate,
+      },
+    });
+
+    return json({
+      success: true,
+      message: `कलेक्शन "${collectionTitle}" के लिए HSN ${hsnCode} (${gstRate}%) सफलतापूर्वक सेट हो गया!`,
+    });
+  }
 
   if (intent === "update_hsn") {
     const id = formData.get("id") as string;
@@ -82,20 +157,26 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function HsnCatalogPage() {
-  const { catalog } = useLoaderData<typeof loader>();
+  const { catalog, collections } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
 
+  const [selectedTab, setSelectedTab] = useState(0);
   const [defaultHsn, setDefaultHsn] = useState("999999");
   const [defaultRate, setDefaultRate] = useState("18");
 
   const taxSlabOptions = [
-    { label: "0% (Exempt)", value: "0" },
-    { label: "5% (Apparel/Footwear < 1k, Food)", value: "5" },
-    { label: "12% (Processed Foods, Apparel > 1k)", value: "12" },
+    { label: "0% (Exempt / कर-मुक्त)", value: "0" },
+    { label: "5% (Apparel/Footwear < ₹1000, Food)", value: "5" },
+    { label: "12% (Processed Foods, Apparel > ₹1000)", value: "12" },
     { label: "18% (Standard Goods & Electronics)", value: "18" },
     { label: "28% (Luxury & Automotive)", value: "28" },
+  ];
+
+  const tabs = [
+    { id: "collections-hsn", content: `Collections HSN Mapping (${collections.length} कलेक्शन)` },
+    { id: "products-hsn", content: `Product & Variant HSN (${catalog.length} प्रोडक्ट्स)` },
   ];
 
   const handleBulkApply = () => {
@@ -106,30 +187,66 @@ export default function HsnCatalogPage() {
     submit(fd, { method: "post" });
   };
 
-  const rows = catalog.map((item) => [
+  const handleSaveCollectionHsn = (col: any, hsn: string, rate: string) => {
+    const fd = new FormData();
+    fd.append("intent", "save_collection_hsn");
+    fd.append("collectionId", col.id);
+    fd.append("collectionTitle", col.title);
+    fd.append("hsnCode", hsn);
+    fd.append("gstRate", rate);
+    submit(fd, { method: "post" });
+  };
+
+  // Collection Rows
+  const collectionRows = collections.map((col) => [
+    <Text as="span" fontWeight="bold">{col.title}</Text>,
+    <Badge tone="info">{col.hsnCode}</Badge>,
+    <Badge tone="success">{col.gstRate}% GST</Badge>,
+    <Button
+      size="micro"
+      variant="primary"
+      onClick={() => {
+        const newHsn = prompt(`कलेक्शन "${col.title}" के लिए 6 या 8 अंकों का HSN कोड दर्ज करें:`, col.hsnCode);
+        if (newHsn && newHsn.trim() !== "") {
+          const newRate = prompt(`GST टैक्स दर दर्ज करें (0, 5, 12, 18, 28):`, col.gstRate) || "18";
+          handleSaveCollectionHsn(col, newHsn.trim(), newRate.trim());
+        }
+      }}
+    >
+      Edit HSN & Slab
+    </Button>,
+  ]);
+
+  // Product Rows
+  const productRows = catalog.map((item) => [
     <BlockStack gap="050">
       <Text as="span" fontWeight="bold">{item.title}</Text>
       <Text as="span" variant="bodyXs" tone="subdued">SKU: {item.sku} | Var: {item.variantTitle}</Text>
     </BlockStack>,
     <Badge tone="info">{item.hsnCode}</Badge>,
     `${item.gstRate}%`,
-    <Button size="micro" onClick={() => {
-      const newHsn = prompt("Enter new 6/8-digit HSN code:", item.hsnCode);
-      if (newHsn && newHsn !== item.hsnCode) {
-        const fd = new FormData();
-        fd.append("intent", "update_hsn");
-        fd.append("id", item.id);
-        fd.append("hsnCode", newHsn);
-        fd.append("gstRate", item.gstRate);
-        submit(fd, { method: "post" });
-      }
-    }}>Edit</Button>,
+    <Button
+      size="micro"
+      onClick={() => {
+        const newHsn = prompt("Enter new 6/8-digit HSN code:", item.hsnCode);
+        if (newHsn && newHsn !== item.hsnCode) {
+          const fd = new FormData();
+          fd.append("intent", "update_hsn");
+          fd.append("id", item.id);
+          fd.append("hsnCode", newHsn);
+          fd.append("gstRate", item.gstRate);
+          submit(fd, { method: "post" });
+        }
+      }}
+    >
+      Edit
+    </Button>,
   ]);
 
   return (
     <Page
-      title="HSN Codes & Tax Slabs"
-      subtitle="Map Harmonized System of Nomenclature (HSN) codes to every product"
+      title="HSN Codes & Tax Slabs (सामान का HSN कोड और टैक्स दरें)"
+      subtitle="कलेक्शन अनुसार (Collection-wise) या प्रत्येक प्रोडक्ट के अनुसार HSN कोड और GST स्लैब सेट करें"
     >
       <BlockStack gap="500">
         {actionData?.success && (
@@ -138,11 +255,12 @@ export default function HsnCatalogPage() {
           </Banner>
         )}
 
+        {/* Global Bulk Setup */}
         <Card>
           <BlockStack gap="400">
-            <Text as="h2" variant="headingSm">Quick Bulk Setup</Text>
+            <Text as="h2" variant="headingSm">Store-wide Default Tax Slab (डिफ़ॉल्ट टैक्स स्लैब)</Text>
             <Text as="p" tone="subdued">
-              Assign a default HSN Code and GST Slab across all products in your store in one click:
+              यदि किसी प्रोडक्ट या कलेक्शन का अलग से HSN कोड नहीं है, तो यह डिफ़ॉल्ट लागू होगा:
             </Text>
             <InlineStack gap="300" align="start">
               <TextField
@@ -166,12 +284,43 @@ export default function HsnCatalogPage() {
           </BlockStack>
         </Card>
 
+        {/* Tabs for Collection-Wise vs Product-Wise */}
         <Card padding="0">
-          <DataTable
-            columnContentTypes={["text", "text", "text", "text"]}
-            headings={["Product & SKU", "HSN / SAC Code", "GST Tax Slab", "Action"]}
-            rows={rows}
-          />
+          <Tabs tabs={tabs} selected={selectedTab} onSelect={setSelectedTab}>
+            {selectedTab === 0 ? (
+              <Box padding="0">
+                {collections.length === 0 ? (
+                  <Box padding="600">
+                    <Text as="p" alignment="center" tone="subdued">
+                      स्टोर पर कोई कलेक्शन नहीं मिला (No Shopify Collections found).
+                    </Text>
+                  </Box>
+                ) : (
+                  <DataTable
+                    columnContentTypes={["text", "text", "text", "text"]}
+                    headings={["Shopify Collection (कलेक्शन का नाम)", "Assigned HSN Code", "GST Tax Slab", "Action"]}
+                    rows={collectionRows}
+                  />
+                )}
+              </Box>
+            ) : (
+              <Box padding="0">
+                {catalog.length === 0 ? (
+                  <Box padding="600">
+                    <Text as="p" alignment="center" tone="subdued">
+                      No individual product overrides yet. Collection mappings or the default store HSN will be used.
+                    </Text>
+                  </Box>
+                ) : (
+                  <DataTable
+                    columnContentTypes={["text", "text", "text", "text"]}
+                    headings={["Product & SKU", "HSN / SAC Code", "GST Tax Slab", "Action"]}
+                    rows={productRows}
+                  />
+                )}
+              </Box>
+            )}
+          </Tabs>
         </Card>
       </BlockStack>
     </Page>

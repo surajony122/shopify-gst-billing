@@ -51,6 +51,11 @@ model StoreSetting {
   autoEmailInvoice    Boolean  @default(true)
   
   // Customization & Branding
+  invoiceTemplate     String   @default("standard_b2b") // "standard_b2b", "modern_d2c", "thermal_pos"
+  brandColor          String   @default("#212B36")
+  taxScheme           String   @default("regular") // "regular" (Rule 46) or "composition" (Rule 49 Bill of Supply)
+  shippingGstRate     Float    @default(18.0)
+  b2bStrictValidation Boolean  @default(true) // Enforce GSTIN state code match
   logoUrl             String?
   signatureUrl        String?
   termsAndConditions  String?  @default("Subject to local jurisdiction. Goods once sold cannot be taken back without valid reasons.")
@@ -196,4 +201,18 @@ model HsnCatalog {
 
   @@unique([shop, shopifyProductId, shopifyVariantId])
   @@index([shop, hsnCode])
+}
+
+model CollectionHsn {
+  id                  String   @id @default(uuid())
+  shop                String
+  shopifyCollectionId String
+  collectionTitle     String
+  hsnCode             String
+  gstRate             Float    @default(18.0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([shop, shopifyCollectionId])
+  @@index([shop, shopifyCollectionId])
 }

@@ -75,6 +75,9 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
       upiId: setting?.upiId || undefined,
     },
     terms: setting?.termsAndConditions || undefined,
+    template: setting?.invoiceTemplate || "standard_b2b",
+    brandColor: setting?.brandColor || "#212B36",
+    taxScheme: setting?.taxScheme || "regular",
   });
 
   return new Response(pdfBuffer, {

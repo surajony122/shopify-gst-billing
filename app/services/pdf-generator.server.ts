@@ -56,6 +56,9 @@ export interface InvoicePDFData {
     upiId?: string;
   };
   terms?: string;
+  template?: string; // "standard_b2b" | "modern_d2c" | "thermal_pos"
+  brandColor?: string;
+  taxScheme?: string; // "regular" | "composition"
 }
 
 /**
@@ -92,8 +95,15 @@ export function numberToIndianWords(num: number): string {
   return str.trim() + " Rupees Only";
 }
 
+function hexToRgb(hex: string = "#212B36"): [number, number, number] {
+  const clean = hex.replace("#", "");
+  if (clean.length !== 6) return [33, 43, 54];
+  const num = parseInt(clean, 16);
+  return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+}
+
 /**
- * Generate a Rule 46 Compliant GST Tax Invoice PDF
+ * Generate a Rule 46 Compliant GST Tax Invoice PDF with Multi-Template Support
  */
 export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffer> {
   const doc = new jsPDF({
@@ -105,22 +115,58 @@ export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffe
   const pageWidth = doc.internal.pageSize.getWidth();
   let y = 14;
 
-  // Header Title
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.setTextColor(33, 43, 54);
-  doc.text("TAX INVOICE", pageWidth / 2, y, { align: "center" });
+  const brandRgb = hexToRgb(data.brandColor || "#212B36");
+  const isComposition = data.taxScheme === "composition";
+  const template = data.template || "standard_b2b";
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(100, 100, 100);
-  doc.text("(Issued under Rule 46 of the CGST Rules, 2017)", pageWidth / 2, y + 4, { align: "center" });
-  y += 10;
+  if (template === "modern_d2c") {
+    // Modern D2C Header Banner with brand color
+    doc.setFillColor(brandRgb[0], brandRgb[1], brandRgb[2]);
+    doc.rect(0, 0, pageWidth, 28, "F");
 
-  // Horizontal divider
-  doc.setDrawColor(220, 220, 220);
-  doc.line(14, y, pageWidth - 14, y);
-  y += 5;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.setTextColor(255, 255, 255);
+    doc.text(isComposition ? "BILL OF SUPPLY" : "TAX INVOICE", 14, 15);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(230, 230, 230);
+    doc.text(
+      isComposition
+        ? "Composition taxable person, not eligible to collect tax on supplies"
+        : "Original for Recipient | Rule 46 CGST Act",
+      14,
+      21
+    );
+
+    y = 35;
+  } else {
+    // Standard Traditional B2B Format
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.setTextColor(brandRgb[0], brandRgb[1], brandRgb[2]);
+    doc.text(isComposition ? "BILL OF SUPPLY" : "TAX INVOICE", pageWidth / 2, y, { align: "center" });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(100, 100, 100);
+    doc.text(
+      isComposition
+        ? "Composition taxable person, not eligible to collect tax on supplies"
+        : "(Issued under Rule 46 of the CGST Rules, 2017)",
+      pageWidth / 2,
+      y + 4,
+      { align: "center" }
+    );
+    y += 10;
+
+    // Outer border for traditional format
+    doc.setDrawColor(brandRgb[0], brandRgb[1], brandRgb[2]);
+    doc.setLineWidth(0.3);
+    doc.line(14, y, pageWidth - 14, y);
+    y += 5;
+  }
 
   // 2-Column Header: Seller Info (Left) vs Invoice Details (Right)
   const leftX = 14;
@@ -233,7 +279,7 @@ export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffe
     body: tableBody,
     theme: "striped",
     headStyles: {
-      fillColor: [33, 43, 54],
+      fillColor: brandRgb,
       textColor: [255, 255, 255],
       fontSize: 8,
       halign: "center",
