@@ -1,0 +1,40 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = ""
+name = "GST Invoicing & Compliance India"
+handle = "gst-invoicing-compliance-india"
+application_url = "https://shopify-gst-billing.onrender.com"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+dev_store_url = ""
+
+[access_scopes]
+scopes = "read_products,write_products,read_orders,write_orders,read_fulfillments,read_locations,read_customer_events"
+
+[auth]
+redirect_urls = [
+  "https://shopify-gst-billing.onrender.com/auth/callback",
+  "https://shopify-gst-billing.onrender.com/auth/shopify/callback",
+  "https://shopify-gst-billing.onrender.com/api/auth/callback"
+]
+
+[webhooks]
+api_version = "2024-10"
+
+  [[webhooks.subscriptions]]
+  topics = [ "orders/create" ]
+  uri = "/webhooks/orders/create"
+
+  [[webhooks.subscriptions]]
+  topics = [ "orders/fulfilled" ]
+  uri = "/webhooks/orders/fulfilled"
+
+  [[webhooks.subscriptions]]
+  topics = [ "refunds/create" ]
+  uri = "/webhooks/refunds/create"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"

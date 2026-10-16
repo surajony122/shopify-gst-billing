@@ -1,0 +1,24 @@
+# Node & Dependencies
+node_modules/
+.npm/
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# Build Artifacts
+dist/
+build/
+.cache/
+
+# Shopify CLI
+.shopify/
+
+# SQLite / Local DB (if used in dev)
+prisma/*.db
+prisma/*.db-journal
+
+# OS Files
+.DS_Store
+Thumbs.db

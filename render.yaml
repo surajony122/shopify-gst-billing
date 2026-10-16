@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: shopify-gst-billing
+    runtime: node
+    plan: starter
+    region: singapore # Closest to India for lowest latency
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: shopify-gst-db
+          property: connectionString
+      - key: SHOPIFY_API_KEY
+        sync: false
+      - key: SHOPIFY_API_SECRET
+        sync: false
+      - key: SCOPES
+        value: read_products,write_products,read_orders,write_orders,read_fulfillments,read_locations,read_customer_events
+      - key: APP_URL
+        sync: false
+      - key: GST_PORTAL_API_KEY
+        sync: false
+
+databases:
+  - name: shopify-gst-db
+    plan: starter
+    region: singapore
+    databaseName: gst_billing
+    user: gst_admin

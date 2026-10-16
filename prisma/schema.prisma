@@ -1,0 +1,199 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+}
+
+model StoreSetting {
+  id                  String   @id @default(uuid())
+  shop                String   @unique
+  legalName           String?
+  tradeName           String?
+  gstin               String?
+  panNumber           String?
+  addressLine1        String?
+  addressLine2        String?
+  city                String?
+  state               String?
+  stateCode           String?
+  pincode             String?
+  phone               String?
+  email               String?
+  
+  // Invoicing Configurations
+  invoicePrefix       String   @default("INV/{FY}/")
+  nextInvoiceNumber   Int      @default(1)
+  creditNotePrefix    String   @default("CN/{FY}/")
+  nextCreditNoteNumber Int     @default(1)
+  autoGenerateTrigger String   @default("on_fulfill") // "on_create" or "on_fulfill"
+  roundOffSection170  Boolean  @default(true)
+  autoEmailInvoice    Boolean  @default(true)
+  
+  // Customization & Branding
+  logoUrl             String?
+  signatureUrl        String?
+  termsAndConditions  String?  @default("Subject to local jurisdiction. Goods once sold cannot be taken back without valid reasons.")
+  bankName            String?
+  bankAccountNo       String?
+  bankIfsc            String?
+  upiId               String?
+
+  // Integrations & Compliance
+  einvoiceEnabled     Boolean  @default(false)
+  einvoiceApiKey      String?
+  whatsappEnabled     Boolean  @default(false)
+  whatsappApiKey      String?
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model WarehouseGSTIN {
+  id            String   @id @default(uuid())
+  shop          String
+  locationId    String   // Shopify Location ID
+  warehouseName String
+  gstin         String
+  state         String
+  stateCode     String
+  address       String
+  invoicePrefix String?
+  currentSequence Int    @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([shop, locationId])
+}
+
+model Invoice {
+  id                   String            @id @default(uuid())
+  shop                 String
+  shopifyOrderId       String            @unique
+  shopifyOrderNumber   String
+  invoiceNumber        String
+  financialYear        String            // e.g. "2026-27"
+  orderDate            DateTime
+  invoiceDate          DateTime          @default(now())
+  
+  // Customer & Place of Supply
+  isB2B                Boolean           @default(false)
+  buyerGstin           String?
+  buyerTradeName       String?
+  buyerEmail           String?
+  buyerPhone           String?
+  shippingAddress      Json?
+  billingAddress       Json?
+  placeOfSupplyState   String
+  placeOfSupplyCode    String
+  isInterState         Boolean           // True: IGST, False: CGST + SGST
+
+  // Financials
+  subtotalTaxable      Float
+  cgstTotal            Float             @default(0)
+  sgstTotal            Float             @default(0)
+  igstTotal            Float             @default(0)
+  cessTotal            Float             @default(0)
+  roundOffAmount       Float             @default(0)
+  grandTotal           Float
+  currency             String            @default("INR")
+
+  // e-Invoice (IRN)
+  irn                  String?
+  irnQrCode            String?
+  irnStatus            String?           // "NOT_APPLICABLE", "GENERATED", "FAILED"
+  irnAckNo             String?
+
+  // Delivery Status
+  emailSent            Boolean           @default(false)
+  whatsappSent         Boolean           @default(false)
+  pdfPath              String?
+
+  lineItems            InvoiceLineItem[]
+  creditNotes          CreditNote[]
+
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  @@index([shop, invoiceNumber])
+  @@index([shop, invoiceDate])
+}
+
+model InvoiceLineItem {
+  id                 String   @id @default(uuid())
+  invoiceId          String
+  invoice            Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  shopifyLineItemId  String?
+  title              String
+  variantTitle       String?
+  sku                String?
+  hsnCode            String   @default("999999")
+  quantity           Int
+  unitPrice          Float
+  discountAmount     Float    @default(0)
+  taxableValue       Float
+  gstRate            Float    // Total GST rate percentage (e.g. 18.0)
+  cgstRate           Float    @default(0)
+  cgstAmount         Float    @default(0)
+  sgstRate           Float    @default(0)
+  sgstAmount         Float    @default(0)
+  igstRate           Float    @default(0)
+  igstAmount         Float    @default(0)
+  totalAmount        Float
+}
+
+model CreditNote {
+  id                   String   @id @default(uuid())
+  shop                 String
+  invoiceId            String
+  invoice              Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  shopifyRefundId      String   @unique
+  creditNoteNumber     String
+  financialYear        String
+  reason               String?
+  date                 DateTime @default(now())
+  taxableAdjusted      Float
+  cgstAdjusted         Float    @default(0)
+  sgstAdjusted         Float    @default(0)
+  igstAdjusted         Float    @default(0)
+  grandTotalAdjusted   Float
+  pdfPath              String?
+  createdAt            DateTime @default(now())
+}
+
+model HsnCatalog {
+  id                String   @id @default(uuid())
+  shop              String
+  shopifyProductId  String
+  shopifyVariantId  String?
+  productTitle      String
+  variantTitle      String?
+  sku               String?
+  hsnCode           String
+  gstRate           Float    @default(18.0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([shop, shopifyProductId, shopifyVariantId])
+  @@index([shop, hsnCode])
+}
