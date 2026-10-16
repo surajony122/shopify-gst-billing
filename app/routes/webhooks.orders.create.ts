@@ -7,7 +7,7 @@ import {
   getCurrentFinancialYear,
   getStateCodeFromName,
   getStateCodeFromGSTIN,
-} from "../services/gst-engine.server";
+} from "../services/gst-engine";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { topic, shop, session, payload } = await authenticate.webhook(request);

@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
-import prisma from "../../db.server";
-import { generateGSTInvoicePDF } from "../../services/pdf-generator.server";
+import prisma from "../db.server";
+import { generateGSTInvoicePDF } from "../services/pdf-generator.server";
 
 export const loader = async ({ params, request }: LoaderFunctionArgs) => {
   const invoiceId = params.id;

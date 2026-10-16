@@ -17,7 +17,7 @@ import {
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import { getStateCodeFromGSTIN, GST_STATE_CODES } from "../services/gst-engine.server";
+import { getStateCodeFromGSTIN, GST_STATE_CODES } from "../services/gst-engine";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
