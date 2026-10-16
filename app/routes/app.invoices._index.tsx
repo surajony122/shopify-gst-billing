@@ -1,6 +1,6 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { useActionData, useLoaderData, useNavigate, useNavigation, useSearchParams, useSubmit } from "@remix-run/react";
+import { Link, useActionData, useLoaderData, useNavigate, useNavigation, useSearchParams, useSubmit } from "@remix-run/react";
 import {
   Page,
   Card,
@@ -16,6 +16,7 @@ import {
   Pagination,
   Box,
   Banner,
+  Modal,
 } from "@shopify/polaris";
 import { useState, useCallback } from "react";
 import { authenticate } from "../shopify.server";
@@ -325,6 +326,8 @@ export default function InvoicesListPage() {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState(searchParams.get("query") || "");
+  const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
+  const [previewTemplate, setPreviewTemplate] = useState<string>("standard_b2b");
 
   const resourceName = {
     singular: "invoice",
@@ -380,9 +383,11 @@ export default function InvoicesListPage() {
       >
         <IndexTable.Cell>
           <BlockStack gap="050">
-            <Text variant="bodyMd" fontWeight="bold" as="span">
-              {invoiceNumber}
-            </Text>
+            <Link to={`/app/invoices/${id}`} style={{ textDecoration: "none", color: "inherit" }}>
+              <Text variant="bodyMd" fontWeight="bold" as="span">
+                {invoiceNumber}
+              </Text>
+            </Link>
             <InlineStack gap="100">
               <Badge tone="info">{templateUsed === "thermal_pos" ? "Thermal POS" : templateUsed === "modern_d2c" ? "Modern D2C" : templateUsed === "minimalist" ? "Minimalist" : "Standard B2B"}</Badge>
               {ewayBillRequired && <Badge tone="critical">e-Way Bill</Badge>}
@@ -421,10 +426,23 @@ export default function InvoicesListPage() {
             <Button
               size="micro"
               variant="primary"
-              url={`/api/invoices/${id}/pdf`}
-              target="_blank"
+              onClick={() => {
+                setSelectedInvoice({
+                  id,
+                  invoiceNumber,
+                  orderNumber,
+                  date,
+                  customer,
+                  isB2B,
+                  buyerGstin,
+                  placeOfSupply,
+                  grandTotal,
+                  templateUsed,
+                });
+                setPreviewTemplate(templateUsed || "standard_b2b");
+              }}
             >
-              PDF
+              View Invoice
             </Button>
           </ButtonGroup>
         </IndexTable.Cell>
@@ -527,6 +545,96 @@ export default function InvoicesListPage() {
             </>
           )}
         </Card>
+
+        {/* Live Invoice Viewer Modal */}
+        {selectedInvoice && (
+          <Modal
+            size="large"
+            open={Boolean(selectedInvoice)}
+            onClose={() => setSelectedInvoice(null)}
+            title={`Tax Invoice: ${selectedInvoice.invoiceNumber} (Order #${selectedInvoice.orderNumber})`}
+            primaryAction={{
+              content: "Download PDF",
+              onAction: () => {
+                const link = document.createElement("a");
+                link.href = `/api/invoices/${selectedInvoice.id}/pdf?template=${previewTemplate}`;
+                link.download = `Invoice-${selectedInvoice.invoiceNumber.replace(/\//g, "-")}.pdf`;
+                link.target = "_blank";
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+              },
+            }}
+            secondaryActions={[
+              {
+                content: "Print Invoice",
+                onAction: () => {
+                  const frame = document.getElementById("invoice-preview-frame") as HTMLIFrameElement;
+                  frame?.contentWindow?.print();
+                },
+              },
+              {
+                content: "Open Fullscreen",
+                onAction: () => {
+                  window.open(`/api/invoices/${selectedInvoice.id}/pdf?template=${previewTemplate}`, "_blank");
+                },
+              },
+            ]}
+          >
+            <Modal.Section>
+              <BlockStack gap="400">
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text as="p" variant="bodySm">
+                    Recipient: <strong>{selectedInvoice.customer}</strong> | Place of Supply: <strong>{selectedInvoice.placeOfSupply}</strong> | Total: <strong>{selectedInvoice.grandTotal}</strong>
+                  </Text>
+                  <InlineStack gap="200" blockAlign="center">
+                    <Text as="span" variant="bodySm" tone="subdued">Switch Design Template:</Text>
+                    <ButtonGroup segmented>
+                      <Button
+                        size="micro"
+                        pressed={previewTemplate === "standard_b2b"}
+                        onClick={() => setPreviewTemplate("standard_b2b")}
+                      >
+                        Standard B2B
+                      </Button>
+                      <Button
+                        size="micro"
+                        pressed={previewTemplate === "modern_d2c"}
+                        onClick={() => setPreviewTemplate("modern_d2c")}
+                      >
+                        Modern D2C
+                      </Button>
+                      <Button
+                        size="micro"
+                        pressed={previewTemplate === "minimalist"}
+                        onClick={() => setPreviewTemplate("minimalist")}
+                      >
+                        Minimalist
+                      </Button>
+                      <Button
+                        size="micro"
+                        pressed={previewTemplate === "thermal_pos"}
+                        onClick={() => setPreviewTemplate("thermal_pos")}
+                      >
+                        Thermal POS
+                      </Button>
+                    </ButtonGroup>
+                  </InlineStack>
+                </InlineStack>
+
+                <div style={{ height: "620px", width: "100%", borderRadius: "8px", overflow: "hidden", border: "1px solid #dcdfe4" }}>
+                  <iframe
+                    id="invoice-preview-frame"
+                    key={`${selectedInvoice.id}-${previewTemplate}`}
+                    src={`/api/invoices/${selectedInvoice.id}/pdf?template=${previewTemplate}`}
+                    style={{ width: "100%", height: "100%", border: "none" }}
+                    title="Invoice PDF Viewer"
+                  />
+                </div>
+              </BlockStack>
+            </Modal.Section>
+          </Modal>
+        )}
       </BlockStack>
     </Page>
   );

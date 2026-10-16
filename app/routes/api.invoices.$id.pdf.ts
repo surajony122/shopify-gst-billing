@@ -86,6 +86,8 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `inline; filename="${invoice.invoiceNumber.replace(/\//g, "-")}.pdf"`,
+      "Content-Security-Policy": "frame-ancestors https://admin.shopify.com https://*.myshopify.com 'self'",
+      "Access-Control-Allow-Origin": "*",
       "Cache-Control": "public, max-age=3600",
     },
   });
