@@ -2,7 +2,7 @@ services:
   - type: web
     name: shopify-gst-billing
     runtime: node
-    plan: starter
+    plan: free
     region: singapore # Closest to India for lowest latency
     buildCommand: npm install && npx prisma generate && npm run build
     startCommand: npm run start
@@ -28,7 +28,7 @@ services:
 
 databases:
   - name: shopify-gst-db
-    plan: starter
+    plan: free
     region: singapore
     databaseName: gst_billing
     user: gst_admin
