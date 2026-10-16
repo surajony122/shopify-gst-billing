@@ -51,10 +51,11 @@ model StoreSetting {
   autoEmailInvoice    Boolean  @default(true)
   
   // Customization & Branding
-  invoiceTemplate     String   @default("standard_b2b") // "standard_b2b", "modern_d2c", "thermal_pos"
+  invoiceTemplate     String   @default("standard_b2b") // "standard_b2b", "modern_d2c", "minimalist", "thermal_pos"
   brandColor          String   @default("#212B36")
   taxScheme           String   @default("regular") // "regular" (Rule 46) or "composition" (Rule 49 Bill of Supply)
   shippingGstRate     Float    @default(18.0)
+  shippingTaxMode     String   @default("fixed_18") // "fixed_18", "exempt_0", "composite_highest"
   b2bStrictValidation Boolean  @default(true) // Enforce GSTIN state code match
   logoUrl             String?
   signatureUrl        String?
@@ -63,6 +64,24 @@ model StoreSetting {
   bankAccountNo       String?
   bankIfsc            String?
   upiId               String?
+
+  // B2B Routing & Series Rules
+  b2bInvoicePrefix      String?  @default("B2B/{FY}/")
+  nextB2BInvoiceNumber  Int      @default(1)
+  b2bForceTemplate      Boolean  @default(true)
+  b2bForcedTemplate     String   @default("standard_b2b")
+
+  // Amount-based Routing Rules
+  amountRulesEnabled       Boolean @default(false)
+  highValueThreshold       Float   @default(10000.0)
+  highValueTemplate        String  @default("standard_b2b")
+  lowValueThreshold        Float   @default(1000.0)
+  lowValueTemplate         String  @default("modern_d2c")
+  ewayBillNoticeThreshold  Float   @default(50000.0)
+
+  // HSN & Tiered Tax Rules
+  apparelFootwearTierRule  Boolean @default(true) // <= 1000 -> 5%, > 1000 -> 12%
+  hsnLengthRequired        Int     @default(6)
 
   // Integrations & Compliance
   einvoiceEnabled     Boolean  @default(false)
@@ -130,6 +149,8 @@ model Invoice {
   irnAckNo             String?
 
   // Delivery Status
+  templateUsed         String            @default("standard_b2b")
+  ewayBillRequired     Boolean           @default(false)
   emailSent            Boolean           @default(false)
   whatsappSent         Boolean           @default(false)
   pdfPath              String?

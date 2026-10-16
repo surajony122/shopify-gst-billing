@@ -75,9 +75,10 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
       upiId: setting?.upiId || undefined,
     },
     terms: setting?.termsAndConditions || undefined,
-    template: setting?.invoiceTemplate || "standard_b2b",
+    template: (new URL(request.url).searchParams.get("template") as string) || (invoice as any).templateUsed || setting?.invoiceTemplate || "standard_b2b",
     brandColor: setting?.brandColor || "#212B36",
     taxScheme: setting?.taxScheme || "regular",
+    ewayBillRequired: (invoice as any).ewayBillRequired || false,
   });
 
   return new Response(pdfBuffer, {

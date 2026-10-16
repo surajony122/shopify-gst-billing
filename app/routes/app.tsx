@@ -22,6 +22,7 @@ export default function App() {
         <Link to="/app/invoices">GST Invoices</Link>
         <Link to="/app/credit-notes">Credit Notes</Link>
         <Link to="/app/hsn-catalog">HSN & Tax Slabs</Link>
+        <Link to="/app/rules">Rules & Templates</Link>
         <Link to="/app/e-invoicing">e-Invoicing (IRN)</Link>
         <Link to="/app/reports">GSTR-1 Reports</Link>
         <Link to="/app/settings">GST Settings</Link>

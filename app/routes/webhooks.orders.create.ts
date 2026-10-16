@@ -121,6 +121,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         igstTotal: taxResult.igstTotal,
         roundOffAmount: taxResult.roundOffAmount,
         grandTotal: taxResult.grandTotal,
+        templateUsed: (setting as any)?.invoiceTemplate || "standard_b2b",
+        ewayBillRequired: taxResult.grandTotal >= ((setting as any)?.ewayBillNoticeThreshold ?? 50000),
         lineItems: {
           create: taxResult.lineItems.map((li) => ({
             title: li.title,

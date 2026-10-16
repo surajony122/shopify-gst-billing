@@ -39,8 +39,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       const setting = await prisma.storeSetting.findUnique({ where: { shop } });
       const sellerStateCode = setting?.stateCode || "27";
       let nextSeq = setting?.nextInvoiceNumber || 1;
+      let nextB2BSeq = (setting as any)?.nextB2BInvoiceNumber || 1;
       const prefix = setting?.invoicePrefix || "INV/{FY}/";
       const financialYear = getCurrentFinancialYear();
+
+      // Fetch saved HSN catalogs and collection mappings for accurate HSN tagging
+      const [hsnCatalogs, collectionHsns] = await Promise.all([
+        prisma.hsnCatalog.findMany({ where: { shop } }),
+        prisma.collectionHsn.findMany({ where: { shop } }),
+      ]);
 
       // Safe query without Level 2 protected customer data to guarantee success
       const response = await admin.graphql(`
@@ -113,17 +120,35 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           buyerStateCode = sellerStateCode; // Default to same state (Intrastate)
         }
 
-        const lineItemsInput = (order.lineItems?.nodes || []).map((item: any) => ({
-          title: item.title,
-          variantTitle: item.variantTitle,
-          sku: item.sku,
-          hsnCode: "999999",
-          quantity: item.quantity,
-          unitPrice: parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0"),
-          discountAmount: 0,
-          gstRate: 18.0,
-        }));
+        // Process line items with HSN lookup and price-tier tax rules
+        const lineItemsInput = (order.lineItems?.nodes || []).map((item: any) => {
+          const unitPrice = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0");
+          
+          // Match HSN catalog by SKU or title
+          const catalogMatch = hsnCatalogs.find((c) => (c.sku && c.sku === item.sku) || c.productTitle === item.title);
+          let hsnCode = catalogMatch?.hsnCode || "999999";
+          let baseRate = catalogMatch?.gstRate ?? 18.0;
 
+          // Apply statutory Apparel & Footwear ₹1,000 price point rule (5% vs 12%)
+          const tierResolution = (setting as any)?.apparelFootwearTierRule ?? true
+            ? (hsnCode.startsWith("61") || hsnCode.startsWith("62") || hsnCode.startsWith("64"))
+              ? unitPrice <= 1000 ? 5.0 : 12.0
+              : baseRate
+            : baseRate;
+
+          return {
+            title: item.title,
+            variantTitle: item.variantTitle,
+            sku: item.sku,
+            hsnCode,
+            quantity: item.quantity,
+            unitPrice,
+            discountAmount: 0,
+            gstRate: tierResolution,
+          };
+        });
+
+        // Calculate order GST
         const taxResult = calculateOrderGST({
           sellerStateCode,
           buyerStateCode,
@@ -131,7 +156,32 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           roundOff: setting?.roundOffSection170 ?? true,
         });
 
-        const invoiceNumber = formatInvoiceNumber(prefix, nextSeq);
+        // Evaluate Invoicing Rules (Amount-based, B2B, e-Way Bill, Template)
+        const isB2B = Boolean(buyerGstin);
+        let selectedTemplate = setting?.invoiceTemplate || "standard_b2b";
+        let activePrefix = prefix;
+        let invoiceSeq = nextSeq;
+
+        if (isB2B && (setting as any)?.b2bForceTemplate) {
+          selectedTemplate = (setting as any)?.b2bForcedTemplate || "standard_b2b";
+        } else if ((setting as any)?.amountRulesEnabled) {
+          if (taxResult.grandTotal >= ((setting as any)?.highValueThreshold ?? 10000)) {
+            selectedTemplate = (setting as any)?.highValueTemplate || "standard_b2b";
+          } else if (taxResult.grandTotal <= ((setting as any)?.lowValueThreshold ?? 1000)) {
+            selectedTemplate = (setting as any)?.lowValueTemplate || "modern_d2c";
+          }
+        }
+
+        if (isB2B && (setting as any)?.b2bInvoicePrefix) {
+          activePrefix = (setting as any).b2bInvoicePrefix;
+          invoiceSeq = nextB2BSeq;
+          nextB2BSeq += 1;
+        } else {
+          nextSeq += 1;
+        }
+
+        const ewayBillRequired = taxResult.grandTotal >= ((setting as any)?.ewayBillNoticeThreshold ?? 50000);
+        const invoiceNumber = formatInvoiceNumber(activePrefix, invoiceSeq);
 
         await prisma.invoice.create({
           data: {
@@ -141,7 +191,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             invoiceNumber,
             financialYear,
             orderDate: new Date(order.createdAt),
-            isB2B: Boolean(buyerGstin),
+            isB2B,
             buyerGstin,
             buyerTradeName: buyerTradeName || (buyerGstin ? "B2B Business Buyer" : "Retail Customer (B2C)"),
             placeOfSupplyState: taxResult.placeOfSupplyState,
@@ -153,6 +203,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             igstTotal: taxResult.igstTotal,
             roundOffAmount: taxResult.roundOffAmount,
             grandTotal: taxResult.grandTotal,
+            templateUsed: selectedTemplate,
+            ewayBillRequired,
             lineItems: {
               create: taxResult.lineItems.map((li) => ({
                 title: li.title,
@@ -176,20 +228,26 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           },
         });
 
-        nextSeq += 1;
         syncedCount += 1;
       }
 
       await prisma.storeSetting.upsert({
         where: { shop },
-        update: { nextInvoiceNumber: nextSeq },
-        create: { shop, nextInvoiceNumber: nextSeq },
+        update: {
+          nextInvoiceNumber: nextSeq,
+          nextB2BInvoiceNumber: nextB2BSeq,
+        },
+        create: {
+          shop,
+          nextInvoiceNumber: nextSeq,
+          nextB2BInvoiceNumber: nextB2BSeq,
+        },
       });
 
       return json({
         success: true,
         message: syncedCount > 0
-          ? `Successfully synced ${syncedCount} orders and generated GST invoices!`
+          ? `Successfully synced ${syncedCount} orders with dynamic rules & templates!`
           : "All existing orders already have GST invoices generated.",
       });
     } catch (err: any) {
@@ -249,6 +307,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       totalTax: `₹${(inv.cgstTotal + inv.sgstTotal + inv.igstTotal).toFixed(2)}`,
       grandTotal: `₹${inv.grandTotal.toFixed(2)}`,
       irnStatus: inv.irnStatus || "N/A",
+      templateUsed: (inv as any).templateUsed || "standard_b2b",
+      ewayBillRequired: (inv as any).ewayBillRequired || false,
     })),
     totalCount,
     page,
@@ -307,6 +367,8 @@ export default function InvoicesListPage() {
         taxableValue,
         totalTax,
         grandTotal,
+        templateUsed,
+        ewayBillRequired,
       },
       index
     ) => (
@@ -317,9 +379,15 @@ export default function InvoicesListPage() {
         position={index}
       >
         <IndexTable.Cell>
-          <Text variant="bodyMd" fontWeight="bold" as="span">
-            {invoiceNumber}
-          </Text>
+          <BlockStack gap="050">
+            <Text variant="bodyMd" fontWeight="bold" as="span">
+              {invoiceNumber}
+            </Text>
+            <InlineStack gap="100">
+              <Badge tone="info">{templateUsed === "thermal_pos" ? "Thermal POS" : templateUsed === "modern_d2c" ? "Modern D2C" : templateUsed === "minimalist" ? "Minimalist" : "Standard B2B"}</Badge>
+              {ewayBillRequired && <Badge tone="critical">e-Way Bill</Badge>}
+            </InlineStack>
+          </BlockStack>
         </IndexTable.Cell>
         <IndexTable.Cell>#{orderNumber}</IndexTable.Cell>
         <IndexTable.Cell>{date}</IndexTable.Cell>

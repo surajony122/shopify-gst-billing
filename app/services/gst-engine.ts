@@ -258,3 +258,143 @@ export function calculateOrderGST(params: {
     grandTotal,
   };
 }
+
+export interface InvoiceRuleSettings {
+  invoicePrefix: string;
+  nextInvoiceNumber: number;
+  b2bInvoicePrefix?: string | null;
+  nextB2BInvoiceNumber?: number;
+  b2bForceTemplate?: boolean;
+  b2bForcedTemplate?: string;
+  defaultTemplate?: string;
+  
+  amountRulesEnabled?: boolean;
+  highValueThreshold?: number;
+  highValueTemplate?: string;
+  lowValueThreshold?: number;
+  lowValueTemplate?: string;
+  ewayBillNoticeThreshold?: number;
+
+  apparelFootwearTierRule?: boolean;
+  shippingTaxMode?: string;
+  hsnLengthRequired?: number;
+  roundOffSection170?: boolean;
+}
+
+export interface RuleEvaluationResult {
+  selectedTemplate: string;
+  invoicePrefix: string;
+  isB2B: boolean;
+  ewayBillRequired: boolean;
+  panMandatoryNotice: boolean;
+  appliedRuleNotes: string[];
+}
+
+/**
+ * Evaluates Indian GST Invoicing Rules based on order parameters
+ */
+export function evaluateInvoiceRules(
+  order: {
+    totalAmount: number;
+    buyerGstin?: string | null;
+    lineItems?: Array<{ hsnCode?: string; unitPrice: number }>;
+  },
+  settings: InvoiceRuleSettings
+): RuleEvaluationResult {
+  const isB2B = Boolean(order.buyerGstin && validateGSTINFormat(order.buyerGstin));
+  const appliedRuleNotes: string[] = [];
+
+  // 1. Template Selection Routing
+  let selectedTemplate = settings.defaultTemplate || "standard_b2b";
+
+  if (isB2B && (settings.b2bForceTemplate ?? true)) {
+    selectedTemplate = settings.b2bForcedTemplate || "standard_b2b";
+    appliedRuleNotes.push(`B2B Rule: Assigned ${selectedTemplate} for registered GSTIN ${order.buyerGstin}`);
+  } else if (settings.amountRulesEnabled) {
+    if (order.totalAmount >= (settings.highValueThreshold ?? 10000)) {
+      selectedTemplate = settings.highValueTemplate || "standard_b2b";
+      appliedRuleNotes.push(`Amount Rule: Order total ₹${order.totalAmount.toFixed(2)} ≥ ₹${settings.highValueThreshold} -> Assigned ${selectedTemplate}`);
+    } else if (order.totalAmount <= (settings.lowValueThreshold ?? 1000)) {
+      selectedTemplate = settings.lowValueTemplate || "modern_d2c";
+      appliedRuleNotes.push(`Amount Rule: Order total ₹${order.totalAmount.toFixed(2)} ≤ ₹${settings.lowValueThreshold} -> Assigned ${selectedTemplate}`);
+    } else {
+      appliedRuleNotes.push(`Default Rule: Order in standard range -> Assigned ${selectedTemplate}`);
+    }
+  } else {
+    appliedRuleNotes.push(`Global Rule: Using default store template (${selectedTemplate})`);
+  }
+
+  // 2. Invoice Prefix Routing (B2B series vs Retail series)
+  let invoicePrefix = settings.invoicePrefix || "INV/{FY}/";
+  if (isB2B && settings.b2bInvoicePrefix && settings.b2bInvoicePrefix.trim() !== "") {
+    invoicePrefix = settings.b2bInvoicePrefix;
+    appliedRuleNotes.push(`Series Rule: B2B Order mapped to sequence ${invoicePrefix}`);
+  } else {
+    appliedRuleNotes.push(`Series Rule: Standard sequence ${invoicePrefix}`);
+  }
+
+  // 3. Statutory Compliance Checks
+  const ewayBillNoticeThreshold = settings.ewayBillNoticeThreshold ?? 50000;
+  const ewayBillRequired = order.totalAmount >= ewayBillNoticeThreshold;
+  if (ewayBillRequired) {
+    appliedRuleNotes.push(`Rule 138 CGST: Consignment value ₹${order.totalAmount.toFixed(2)} exceeds ₹${ewayBillNoticeThreshold} (e-Way Bill applicable)`);
+  }
+
+  const panMandatoryNotice = order.totalAmount >= 200000;
+  if (panMandatoryNotice) {
+    appliedRuleNotes.push(`Income Tax Rule 114B: High-value transaction > ₹2 Lakh requires customer PAN`);
+  }
+
+  return {
+    selectedTemplate,
+    invoicePrefix,
+    isB2B,
+    ewayBillRequired,
+    panMandatoryNotice,
+    appliedRuleNotes,
+  };
+}
+
+/**
+ * Resolves GST Rate for special HSN categories (e.g. Apparel & Footwear ₹1,000 price point threshold)
+ */
+export function resolveItemGstRate(
+  hsnCode: string = "999999",
+  unitPrice: number,
+  fallbackRate: number = 18,
+  tierRuleEnabled: boolean = true
+): { rate: number; ruleApplied?: string } {
+  const cleanHsn = hsnCode.trim();
+
+  // Indian statutory rule: HSN chapters 61, 62 (Apparel/Garments) and 64 (Footwear)
+  if (tierRuleEnabled && (cleanHsn.startsWith("61") || cleanHsn.startsWith("62") || cleanHsn.startsWith("64"))) {
+    if (unitPrice <= 1000) {
+      return {
+        rate: 5.0,
+        ruleApplied: `HSN ${cleanHsn} Tier: Unit price ≤ ₹1,000 applies 5% GST`,
+      };
+    } else {
+      return {
+        rate: 12.0,
+        ruleApplied: `HSN ${cleanHsn} Tier: Unit price > ₹1,000 applies 12% GST`,
+      };
+    }
+  }
+
+  return { rate: fallbackRate };
+}
+
+/**
+ * Composite Supply shipping GST rate under Section 8(a) of CGST Act
+ */
+export function resolveShippingGstRate(
+  mode: string = "fixed_18",
+  itemRates: number[] = [18]
+): number {
+  if (mode === "exempt_0") return 0;
+  if (mode === "composite_highest") {
+    if (itemRates.length === 0) return 18;
+    return Math.max(...itemRates);
+  }
+  return 18; // Default fixed 18%
+}
