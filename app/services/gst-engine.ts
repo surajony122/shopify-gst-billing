@@ -8,6 +8,40 @@ export interface StateInfo {
   name: string;
 }
 
+/**
+ * Convert number to Indian Currency words (Rupees in Lakhs & Crores)
+ */
+export function numberToIndianWords(num: number): string {
+  const a = [
+    "", "One ", "Two ", "Three ", "Four ", "Five ", "Six ", "Seven ", "Eight ", "Nine ", "Ten ",
+    "Eleven ", "Twelve ", "Thirteen ", "Fourteen ", "Fifteen ", "Sixteen ", "Seventeen ", "Eighteen ", "Nineteen "
+  ];
+  const b = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+
+  const integer = Math.floor(Math.abs(num));
+  if (integer === 0) return "Zero Rupees Only";
+
+  function convertTwoDigits(n: number): string {
+    if (n < 20) return a[n];
+    return b[Math.floor(n / 10)] + (n % 10 !== 0 ? " " + a[n % 10] : " ");
+  }
+
+  let str = "";
+  const crore = Math.floor(integer / 10000000);
+  const lakh = Math.floor((integer % 10000000) / 100000);
+  const thousand = Math.floor((integer % 100000) / 1000);
+  const hundred = Math.floor((integer % 1000) / 100);
+  const remaining = integer % 100;
+
+  if (crore > 0) str += convertTwoDigits(crore) + "Crore ";
+  if (lakh > 0) str += convertTwoDigits(lakh) + "Lakh ";
+  if (thousand > 0) str += convertTwoDigits(thousand) + "Thousand ";
+  if (hundred > 0) str += a[hundred] + "Hundred ";
+  if (remaining > 0) str += (str !== "" ? "and " : "") + convertTwoDigits(remaining);
+
+  return str.trim() + " Rupees Only";
+}
+
 export const GST_STATE_CODES: Record<string, StateInfo> = {
   "01": { code: "01", name: "Jammu and Kashmir" },
   "02": { code: "02", name: "Himachal Pradesh" },

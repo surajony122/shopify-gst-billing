@@ -10,7 +10,6 @@ import {
   Badge,
   ButtonGroup,
   Button,
-  Divider,
   DataTable,
   Box,
   InlineGrid,
@@ -18,6 +17,7 @@ import {
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { InvoiceHTMLPreview } from "../components/InvoiceHTMLPreview";
 
 export const loader = async ({ params, request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -28,16 +28,28 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
     throw new Response("Invoice ID required", { status: 400 });
   }
 
-  const invoice = await prisma.invoice.findFirst({
-    where: { id: invoiceId, shop },
-    include: { lineItems: true },
-  });
+  const [invoice, sellerSetting] = await Promise.all([
+    prisma.invoice.findFirst({
+      where: { id: invoiceId, shop },
+      include: { lineItems: true },
+    }),
+    prisma.storeSetting.findUnique({ where: { shop } }),
+  ]);
 
   if (!invoice) {
     throw new Response("Invoice not found", { status: 404 });
   }
 
   return json({
+    seller: sellerSetting || {
+      legalName: "Merchant Store",
+      tradeName: "Store",
+      gstin: "N/A",
+      state: "Maharashtra",
+      stateCode: "27",
+      brandColor: "#212B36",
+      taxScheme: "regular",
+    },
     invoice: {
       id: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
@@ -48,17 +60,41 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
       isB2B: invoice.isB2B,
       buyerGstin: invoice.buyerGstin || "N/A",
       buyerTradeName: invoice.buyerTradeName || "Retail Customer (B2C)",
+      placeOfSupplyState: invoice.placeOfSupplyState,
+      placeOfSupplyCode: invoice.placeOfSupplyCode,
       placeOfSupply: `${invoice.placeOfSupplyCode} - ${invoice.placeOfSupplyState}`,
       isInterState: invoice.isInterState,
-      subtotalTaxable: `₹${invoice.subtotalTaxable.toFixed(2)}`,
-      cgstTotal: `₹${invoice.cgstTotal.toFixed(2)}`,
-      sgstTotal: `₹${invoice.sgstTotal.toFixed(2)}`,
-      igstTotal: `₹${invoice.igstTotal.toFixed(2)}`,
-      roundOffAmount: `₹${invoice.roundOffAmount.toFixed(2)}`,
-      grandTotal: `₹${invoice.grandTotal.toFixed(2)}`,
+      subtotalTaxable: invoice.subtotalTaxable,
+      cgstTotal: invoice.cgstTotal,
+      sgstTotal: invoice.sgstTotal,
+      igstTotal: invoice.igstTotal,
+      roundOffAmount: invoice.roundOffAmount,
+      grandTotal: invoice.grandTotal,
+      subtotalTaxableFormatted: `₹${invoice.subtotalTaxable.toFixed(2)}`,
+      cgstTotalFormatted: `₹${invoice.cgstTotal.toFixed(2)}`,
+      sgstTotalFormatted: `₹${invoice.sgstTotal.toFixed(2)}`,
+      igstTotalFormatted: `₹${invoice.igstTotal.toFixed(2)}`,
+      roundOffAmountFormatted: `₹${invoice.roundOffAmount.toFixed(2)}`,
+      grandTotalFormatted: `₹${invoice.grandTotal.toFixed(2)}`,
       templateUsed: (invoice as any).templateUsed || "standard_b2b",
       ewayBillRequired: (invoice as any).ewayBillRequired || false,
-      lineItems: invoice.lineItems.map((item, idx) => [
+      lineItems: invoice.lineItems.map((li) => ({
+        id: li.id,
+        title: li.title,
+        variantTitle: li.variantTitle,
+        sku: li.sku,
+        hsnCode: li.hsnCode,
+        quantity: li.quantity,
+        unitPrice: li.unitPrice,
+        discountAmount: li.discountAmount,
+        taxableValue: li.taxableValue,
+        gstRate: li.gstRate,
+        cgstAmount: li.cgstAmount,
+        sgstAmount: li.sgstAmount,
+        igstAmount: li.igstAmount,
+        totalAmount: li.totalAmount,
+      })),
+      tableRows: invoice.lineItems.map((item, idx) => [
         idx + 1,
         item.title,
         item.hsnCode,
@@ -74,7 +110,7 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
 };
 
 export default function SingleInvoiceViewPage() {
-  const { invoice } = useLoaderData<typeof loader>();
+  const { invoice, seller } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
   const [template, setTemplate] = useState<string>(invoice.templateUsed || "standard_b2b");
 
@@ -91,8 +127,31 @@ export default function SingleInvoiceViewPage() {
   };
 
   const handlePrint = () => {
-    const frame = document.getElementById("invoice-detail-pdf-frame") as HTMLIFrameElement;
-    frame?.contentWindow?.print();
+    const printArea = document.getElementById("invoice-printable-area");
+    if (!printArea) return;
+    const printWin = window.open("", "_blank");
+    if (!printWin) return;
+    printWin.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Invoice ${invoice.invoiceNumber}</title>
+          <style>
+            body { margin: 0; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+            @media print { body { padding: 0; } }
+          </style>
+        </head>
+        <body>
+          ${printArea.outerHTML}
+        </body>
+      </html>
+    `);
+    printWin.document.close();
+    printWin.focus();
+    setTimeout(() => {
+      printWin.print();
+      printWin.close();
+    }, 300);
   };
 
   return (
@@ -118,7 +177,7 @@ export default function SingleInvoiceViewPage() {
           onAction: handlePrint,
         },
         {
-          content: "Open in New Window",
+          content: "Open PDF in New Window",
           onAction: () => window.open(pdfUrl, "_blank"),
         },
       ]}
@@ -141,17 +200,17 @@ export default function SingleInvoiceViewPage() {
               </BlockStack>
               <BlockStack gap="050">
                 <Text as="span" variant="bodySm" tone="subdued">Taxable Subtotal</Text>
-                <Text as="span" fontWeight="bold">{invoice.subtotalTaxable}</Text>
+                <Text as="span" fontWeight="bold">{invoice.subtotalTaxableFormatted}</Text>
               </BlockStack>
               <BlockStack gap="050">
                 <Text as="span" variant="bodySm" tone="subdued">Net Grand Total</Text>
-                <Text as="span" variant="headingMd" fontWeight="bold">{invoice.grandTotal}</Text>
+                <Text as="span" variant="headingMd" fontWeight="bold">{invoice.grandTotalFormatted}</Text>
               </BlockStack>
             </InlineGrid>
           </BlockStack>
         </Card>
 
-        {/* Live Interactive PDF Viewer */}
+        {/* Live Interactive Invoice Preview */}
         <Card>
           <BlockStack gap="400">
             <InlineStack align="space-between" blockAlign="center">
@@ -191,13 +250,19 @@ export default function SingleInvoiceViewPage() {
               </InlineStack>
             </InlineStack>
 
-            <div style={{ height: "650px", width: "100%", borderRadius: "8px", overflow: "hidden", border: "1px solid #dcdfe4" }}>
-              <iframe
-                id="invoice-detail-pdf-frame"
-                key={`${invoice.id}-${template}`}
-                src={pdfUrl}
-                style={{ width: "100%", height: "100%", border: "none" }}
-                title="Invoice Detail Preview"
+            <div
+              style={{
+                maxHeight: "750px",
+                overflowY: "auto",
+                borderRadius: "8px",
+                border: "1px solid #dcdfe4",
+                background: "#f1f2f4",
+              }}
+            >
+              <InvoiceHTMLPreview
+                invoice={invoice}
+                seller={seller}
+                template={template}
               />
             </div>
           </BlockStack>
@@ -211,7 +276,7 @@ export default function SingleInvoiceViewPage() {
           <DataTable
             columnContentTypes={["numeric", "text", "text", "numeric", "numeric", "numeric", "text", "numeric", "numeric"]}
             headings={["#", "Item Description", "HSN/SAC", "Qty", "Rate", "Taxable Value", "GST %", "GST Amount", "Total (INR)"]}
-            rows={invoice.lineItems}
+            rows={invoice.tableRows}
           />
         </Card>
       </BlockStack>

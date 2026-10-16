@@ -21,6 +21,7 @@ import {
 import { useState, useCallback } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { InvoiceHTMLPreview } from "../components/InvoiceHTMLPreview";
 import {
   calculateOrderGST,
   formatInvoiceNumber,
@@ -282,7 +283,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     ];
   }
 
-  const [invoices, totalCount] = await Promise.all([
+  const [invoices, totalCount, sellerSetting] = await Promise.all([
     prisma.invoice.findMany({
       where: whereClause,
       orderBy: { invoiceDate: "desc" },
@@ -291,25 +292,60 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       include: { lineItems: true },
     }),
     prisma.invoice.count({ where: whereClause }),
+    prisma.storeSetting.findUnique({ where: { shop } }),
   ]);
 
   return json({
+    seller: sellerSetting || {
+      legalName: "Merchant Store",
+      tradeName: "Store",
+      gstin: "N/A",
+      state: "Maharashtra",
+      stateCode: "27",
+      brandColor: "#212B36",
+      taxScheme: "regular",
+    },
     invoices: invoices.map((inv) => ({
       id: inv.id,
       invoiceNumber: inv.invoiceNumber,
       orderNumber: inv.shopifyOrderNumber,
+      financialYear: inv.financialYear,
       date: new Date(inv.invoiceDate).toLocaleDateString("en-IN"),
       customer: inv.buyerTradeName || "Retail Customer",
       isB2B: inv.isB2B,
       buyerGstin: inv.buyerGstin || "N/A",
-      placeOfSupply: inv.placeOfSupplyState,
+      placeOfSupplyState: inv.placeOfSupplyState,
+      placeOfSupplyCode: inv.placeOfSupplyCode,
+      placeOfSupply: `${inv.placeOfSupplyCode} - ${inv.placeOfSupplyState}`,
       isInterState: inv.isInterState,
-      taxableValue: `₹${inv.subtotalTaxable.toFixed(2)}`,
-      totalTax: `₹${(inv.cgstTotal + inv.sgstTotal + inv.igstTotal).toFixed(2)}`,
-      grandTotal: `₹${inv.grandTotal.toFixed(2)}`,
+      subtotalTaxable: inv.subtotalTaxable,
+      cgstTotal: inv.cgstTotal,
+      sgstTotal: inv.sgstTotal,
+      igstTotal: inv.igstTotal,
+      roundOffAmount: inv.roundOffAmount,
+      grandTotal: inv.grandTotal,
+      taxableValueFormatted: `₹${inv.subtotalTaxable.toFixed(2)}`,
+      totalTaxFormatted: `₹${(inv.cgstTotal + inv.sgstTotal + inv.igstTotal).toFixed(2)}`,
+      grandTotalFormatted: `₹${inv.grandTotal.toFixed(2)}`,
       irnStatus: inv.irnStatus || "N/A",
       templateUsed: (inv as any).templateUsed || "standard_b2b",
       ewayBillRequired: (inv as any).ewayBillRequired || false,
+      lineItems: inv.lineItems.map((li) => ({
+        id: li.id,
+        title: li.title,
+        variantTitle: li.variantTitle,
+        sku: li.sku,
+        hsnCode: li.hsnCode,
+        quantity: li.quantity,
+        unitPrice: li.unitPrice,
+        discountAmount: li.discountAmount,
+        taxableValue: li.taxableValue,
+        gstRate: li.gstRate,
+        cgstAmount: li.cgstAmount,
+        sgstAmount: li.sgstAmount,
+        igstAmount: li.igstAmount,
+        totalAmount: li.totalAmount,
+      })),
     })),
     totalCount,
     page,
@@ -318,7 +354,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export default function InvoicesListPage() {
-  const { invoices, totalCount, page, totalPages } = useLoaderData<typeof loader>();
+  const { invoices, seller, totalCount, page, totalPages } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -414,11 +450,11 @@ export default function InvoicesListPage() {
             </Badge>
           </BlockStack>
         </IndexTable.Cell>
-        <IndexTable.Cell>{taxableValue}</IndexTable.Cell>
-        <IndexTable.Cell>{totalTax}</IndexTable.Cell>
+        <IndexTable.Cell>{taxableValueFormatted}</IndexTable.Cell>
+        <IndexTable.Cell>{totalTaxFormatted}</IndexTable.Cell>
         <IndexTable.Cell>
           <Text variant="bodyMd" fontWeight="bold" as="span">
-            {grandTotal}
+            {grandTotalFormatted}
           </Text>
         </IndexTable.Cell>
         <IndexTable.Cell>
@@ -427,19 +463,8 @@ export default function InvoicesListPage() {
               size="micro"
               variant="primary"
               onClick={() => {
-                setSelectedInvoice({
-                  id,
-                  invoiceNumber,
-                  orderNumber,
-                  date,
-                  customer,
-                  isB2B,
-                  buyerGstin,
-                  placeOfSupply,
-                  grandTotal,
-                  templateUsed,
-                });
-                setPreviewTemplate(templateUsed || "standard_b2b");
+                setSelectedInvoice(invoices[index]);
+                setPreviewTemplate(invoices[index].templateUsed || "standard_b2b");
               }}
             >
               View Invoice
@@ -569,12 +594,35 @@ export default function InvoicesListPage() {
               {
                 content: "Print Invoice",
                 onAction: () => {
-                  const frame = document.getElementById("invoice-preview-frame") as HTMLIFrameElement;
-                  frame?.contentWindow?.print();
+                  const printArea = document.getElementById("invoice-printable-area");
+                  if (!printArea) return;
+                  const printWin = window.open("", "_blank");
+                  if (!printWin) return;
+                  printWin.document.write(`
+                    <!DOCTYPE html>
+                    <html>
+                      <head>
+                        <title>Invoice ${selectedInvoice.invoiceNumber}</title>
+                        <style>
+                          body { margin: 0; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+                          @media print { body { padding: 0; } }
+                        </style>
+                      </head>
+                      <body>
+                        ${printArea.outerHTML}
+                      </body>
+                    </html>
+                  `);
+                  printWin.document.close();
+                  printWin.focus();
+                  setTimeout(() => {
+                    printWin.print();
+                    printWin.close();
+                  }, 300);
                 },
               },
               {
-                content: "Open Fullscreen",
+                content: "Open PDF in New Window",
                 onAction: () => {
                   window.open(`/api/invoices/${selectedInvoice.id}/pdf?template=${previewTemplate}`, "_blank");
                 },
@@ -585,7 +633,7 @@ export default function InvoicesListPage() {
               <BlockStack gap="400">
                 <InlineStack align="space-between" blockAlign="center">
                   <Text as="p" variant="bodySm">
-                    Recipient: <strong>{selectedInvoice.customer}</strong> | Place of Supply: <strong>{selectedInvoice.placeOfSupply}</strong> | Total: <strong>{selectedInvoice.grandTotal}</strong>
+                    Recipient: <strong>{selectedInvoice.customer}</strong> | Place of Supply: <strong>{selectedInvoice.placeOfSupply}</strong> | Total: <strong>{selectedInvoice.grandTotalFormatted}</strong>
                   </Text>
                   <InlineStack gap="200" blockAlign="center">
                     <Text as="span" variant="bodySm" tone="subdued">Switch Design Template:</Text>
@@ -622,13 +670,19 @@ export default function InvoicesListPage() {
                   </InlineStack>
                 </InlineStack>
 
-                <div style={{ height: "620px", width: "100%", borderRadius: "8px", overflow: "hidden", border: "1px solid #dcdfe4" }}>
-                  <iframe
-                    id="invoice-preview-frame"
-                    key={`${selectedInvoice.id}-${previewTemplate}`}
-                    src={`/api/invoices/${selectedInvoice.id}/pdf?template=${previewTemplate}`}
-                    style={{ width: "100%", height: "100%", border: "none" }}
-                    title="Invoice PDF Viewer"
+                <div
+                  style={{
+                    maxHeight: "640px",
+                    overflowY: "auto",
+                    borderRadius: "8px",
+                    border: "1px solid #dcdfe4",
+                    background: "#f1f2f4",
+                  }}
+                >
+                  <InvoiceHTMLPreview
+                    invoice={selectedInvoice}
+                    seller={seller}
+                    template={previewTemplate}
                   />
                 </div>
               </BlockStack>
