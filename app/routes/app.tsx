@@ -18,13 +18,13 @@ export default function App() {
   return (
     <AppProvider isEmbeddedApp apiKey={apiKey} i18n={polarisTranslations}>
       <NavMenu>
-        <Link to="/app" rel="home">Dashboard (डैशबोर्ड)</Link>
-        <Link to="/app/invoices">GST Invoices (पक्का बिल)</Link>
-        <Link to="/app/credit-notes">Credit Notes (रिफंड / वापसी)</Link>
-        <Link to="/app/hsn-catalog">HSN & Tax Slabs (HSN कोड)</Link>
-        <Link to="/app/e-invoicing">e-Invoicing (IRN पोर्टल)</Link>
-        <Link to="/app/reports">GSTR-1 Reports (सीए रिपोर्ट)</Link>
-        <Link to="/app/settings">GST Settings (जीएसटी प्रोफाइल)</Link>
+        <Link to="/app" rel="home">Dashboard</Link>
+        <Link to="/app/invoices">GST Invoices</Link>
+        <Link to="/app/credit-notes">Credit Notes</Link>
+        <Link to="/app/hsn-catalog">HSN & Tax Slabs</Link>
+        <Link to="/app/e-invoicing">e-Invoicing (IRN)</Link>
+        <Link to="/app/reports">GSTR-1 Reports</Link>
+        <Link to="/app/settings">GST Settings</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>

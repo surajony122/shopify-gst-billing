@@ -119,7 +119,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     },
   });
 
-  return json({ success: true, message: "Settings saved successfully (सेटिंग्स सुरक्षित हो गईं)!" });
+  return json({ success: true, message: "Settings saved successfully!" });
 };
 
 export default function SettingsPage() {
@@ -262,16 +262,16 @@ export default function SettingsPage() {
         {/* Invoice Templates & Design */}
         <Card>
           <BlockStack gap="400">
-            <Text as="h2" variant="headingMd">Invoice Templates & Design (बिल का प्रारूप व स्टाइल)</Text>
+            <Text as="h2" variant="headingMd">Invoice Templates & Design</Text>
             <Text as="p" tone="subdued">Choose the visual design layout and primary brand accent color for your invoices:</Text>
             <Divider />
             <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
               <Select
                 label="Invoice Design Template"
                 options={[
-                  { label: "Standard Indian B2B (पारंपरिक पक्का बिल - बॉक्स और कानूनी घोषणा)", value: "standard_b2b" },
-                  { label: "Modern D2C Clean (मॉडर्न D2C ब्रांडेड बिल - हेडर बैनर)", value: "modern_d2c" },
-                  { label: "Compact Thermal Receipt (थर्मल प्रिंटर / पार्सल स्लिप - 80mm)", value: "thermal_pos" },
+                  { label: "Standard Indian B2B (Traditional Tax Invoice with Tax Grid & Declaration)", value: "standard_b2b" },
+                  { label: "Modern D2C Clean (Branded Layout with Header Banner)", value: "modern_d2c" },
+                  { label: "Compact Thermal Receipt (80mm POS Slip / Packing Slip)", value: "thermal_pos" },
                 ]}
                 value={form.invoiceTemplate || "standard_b2b"}
                 onChange={(val) => setForm({ ...form, invoiceTemplate: val })}
@@ -290,7 +290,7 @@ export default function SettingsPage() {
         {/* GST Rules & Business Policies */}
         <Card>
           <BlockStack gap="400">
-            <Text as="h2" variant="headingMd">GST Rules & Automation (जीएसटी नियम व टैक्स नीतियां)</Text>
+            <Text as="h2" variant="headingMd">GST Rules & Automation</Text>
             <Text as="p" tone="subdued">Configure statutory compliance rules for invoice generation and tax application:</Text>
             <Divider />
             <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
@@ -307,7 +307,7 @@ export default function SettingsPage() {
               <Select
                 label="Invoice Generation Trigger Rule"
                 options={[
-                  { label: "Generate only when Order is Fulfilled / Shipped (अनुशंसित)", value: "on_fulfill" },
+                  { label: "Generate only when Order is Fulfilled / Shipped (Recommended)", value: "on_fulfill" },
                   { label: "Generate immediately when Order is Placed", value: "on_create" },
                 ]}
                 value={form.autoGenerateTrigger || "on_fulfill"}

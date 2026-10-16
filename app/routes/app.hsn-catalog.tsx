@@ -118,7 +118,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     return json({
       success: true,
-      message: `कलेक्शन "${collectionTitle}" के लिए HSN ${hsnCode} (${gstRate}%) सफलतापूर्वक सेट हो गया!`,
+      message: `HSN code ${hsnCode} (${gstRate}%) successfully saved for collection "${collectionTitle}"!`,
     });
   }
 
@@ -167,16 +167,16 @@ export default function HsnCatalogPage() {
   const [defaultRate, setDefaultRate] = useState("18");
 
   const taxSlabOptions = [
-    { label: "0% (Exempt / कर-मुक्त)", value: "0" },
-    { label: "5% (Apparel/Footwear < ₹1000, Food)", value: "5" },
+    { label: "0% (Exempt / Nil-Rated Goods)", value: "0" },
+    { label: "5% (Apparel/Footwear < ₹1000, Food Items)", value: "5" },
     { label: "12% (Processed Foods, Apparel > ₹1000)", value: "12" },
-    { label: "18% (Standard Goods & Electronics)", value: "18" },
+    { label: "18% (Standard Goods, Services & Electronics)", value: "18" },
     { label: "28% (Luxury & Automotive)", value: "28" },
   ];
 
   const tabs = [
-    { id: "collections-hsn", content: `Collections HSN Mapping (${collections.length} कलेक्शन)` },
-    { id: "products-hsn", content: `Product & Variant HSN (${catalog.length} प्रोडक्ट्स)` },
+    { id: "collections-hsn", content: `Collections HSN Mapping (${collections.length} Collections)` },
+    { id: "products-hsn", content: `Product & Variant HSN (${catalog.length} Products)` },
   ];
 
   const handleBulkApply = () => {
@@ -206,9 +206,9 @@ export default function HsnCatalogPage() {
       size="micro"
       variant="primary"
       onClick={() => {
-        const newHsn = prompt(`कलेक्शन "${col.title}" के लिए 6 या 8 अंकों का HSN कोड दर्ज करें:`, col.hsnCode);
+        const newHsn = prompt(`Enter 6 or 8-digit HSN code for collection "${col.title}":`, col.hsnCode);
         if (newHsn && newHsn.trim() !== "") {
-          const newRate = prompt(`GST टैक्स दर दर्ज करें (0, 5, 12, 18, 28):`, col.gstRate) || "18";
+          const newRate = prompt(`Enter GST Tax Slab rate (0, 5, 12, 18, 28):`, col.gstRate) || "18";
           handleSaveCollectionHsn(col, newHsn.trim(), newRate.trim());
         }
       }}
@@ -245,8 +245,8 @@ export default function HsnCatalogPage() {
 
   return (
     <Page
-      title="HSN Codes & Tax Slabs (सामान का HSN कोड और टैक्स दरें)"
-      subtitle="कलेक्शन अनुसार (Collection-wise) या प्रत्येक प्रोडक्ट के अनुसार HSN कोड और GST स्लैब सेट करें"
+      title="HSN Codes & Tax Slabs"
+      subtitle="Set HSN codes and GST tax slabs by Collection or per Product/Variant"
     >
       <BlockStack gap="500">
         {actionData?.success && (
@@ -258,9 +258,9 @@ export default function HsnCatalogPage() {
         {/* Global Bulk Setup */}
         <Card>
           <BlockStack gap="400">
-            <Text as="h2" variant="headingSm">Store-wide Default Tax Slab (डिफ़ॉल्ट टैक्स स्लैब)</Text>
+            <Text as="h2" variant="headingSm">Store-wide Default Tax Slab</Text>
             <Text as="p" tone="subdued">
-              यदि किसी प्रोडक्ट या कलेक्शन का अलग से HSN कोड नहीं है, तो यह डिफ़ॉल्ट लागू होगा:
+              If a product or collection does not have an individual HSN code assigned, this default tax slab will apply:
             </Text>
             <InlineStack gap="300" align="start">
               <TextField
@@ -292,13 +292,13 @@ export default function HsnCatalogPage() {
                 {collections.length === 0 ? (
                   <Box padding="600">
                     <Text as="p" alignment="center" tone="subdued">
-                      स्टोर पर कोई कलेक्शन नहीं मिला (No Shopify Collections found).
+                      No Shopify Collections found for this store.
                     </Text>
                   </Box>
                 ) : (
                   <DataTable
                     columnContentTypes={["text", "text", "text", "text"]}
-                    headings={["Shopify Collection (कलेक्शन का नाम)", "Assigned HSN Code", "GST Tax Slab", "Action"]}
+                    headings={["Shopify Collection", "Assigned HSN Code", "GST Tax Slab", "Action"]}
                     rows={collectionRows}
                   />
                 )}
