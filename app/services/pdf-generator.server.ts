@@ -2,6 +2,18 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import QRCode from "qrcode";
 
+function runAutoTable(doc: any, options: any) {
+  if (typeof autoTable === "function") {
+    autoTable(doc, options);
+  } else if (typeof (autoTable as any)?.default === "function") {
+    (autoTable as any).default(doc, options);
+  } else if (typeof doc.autoTable === "function") {
+    doc.autoTable(options);
+  } else {
+    throw new Error("jspdf-autotable could not be initialized");
+  }
+}
+
 export interface InvoicePDFData {
   invoiceNumber: string;
   orderNumber: string;
@@ -173,7 +185,7 @@ async function generateThermalPOSPDF(data: InvoicePDFData): Promise<Buffer> {
     item.totalAmount.toFixed(0),
   ]);
 
-  autoTable(doc, {
+  runAutoTable(doc, {
     startY: y,
     head: tableHeaders,
     body: tableBody,
@@ -382,7 +394,7 @@ async function generateMinimalistPDF(data: InvoicePDFData): Promise<Buffer> {
     }
   });
 
-  autoTable(doc, {
+  runAutoTable(doc, {
     startY: y,
     head: tableHeaders,
     body: tableBody,
@@ -425,25 +437,25 @@ async function generateMinimalistPDF(data: InvoicePDFData): Promise<Buffer> {
   doc.setTextColor(100, 100, 100);
 
   doc.text("Taxable Subtotal", totalsLabelX, finalY);
-  doc.text(`₹ ${data.subtotalTaxable.toFixed(2)}`, totalsValueX, finalY, { align: "right" });
+  doc.text(`Rs. ${data.subtotalTaxable.toFixed(2)}`, totalsValueX, finalY, { align: "right" });
   finalY += 4.5;
 
   if (data.isInterState) {
     doc.text("IGST Total", totalsLabelX, finalY);
-    doc.text(`₹ ${data.igstTotal.toFixed(2)}`, totalsValueX, finalY, { align: "right" });
+    doc.text(`Rs. ${data.igstTotal.toFixed(2)}`, totalsValueX, finalY, { align: "right" });
     finalY += 4.5;
   } else {
     doc.text("CGST Total", totalsLabelX, finalY);
-    doc.text(`₹ ${data.cgstTotal.toFixed(2)}`, totalsValueX, finalY, { align: "right" });
+    doc.text(`Rs. ${data.cgstTotal.toFixed(2)}`, totalsValueX, finalY, { align: "right" });
     finalY += 4.5;
     doc.text("SGST Total", totalsLabelX, finalY);
-    doc.text(`₹ ${data.sgstTotal.toFixed(2)}`, totalsValueX, finalY, { align: "right" });
+    doc.text(`Rs. ${data.sgstTotal.toFixed(2)}`, totalsValueX, finalY, { align: "right" });
     finalY += 4.5;
   }
 
   if (data.roundOff !== 0) {
     doc.text("Round-off (Sec 170)", totalsLabelX, finalY);
-    doc.text(`₹ ${data.roundOff.toFixed(2)}`, totalsValueX, finalY, { align: "right" });
+    doc.text(`Rs. ${data.roundOff.toFixed(2)}`, totalsValueX, finalY, { align: "right" });
     finalY += 4.5;
   }
 
@@ -455,7 +467,7 @@ async function generateMinimalistPDF(data: InvoicePDFData): Promise<Buffer> {
   doc.setFontSize(11);
   doc.setTextColor(20, 20, 20);
   doc.text("Total Amount", totalsLabelX, finalY);
-  doc.text(`₹ ${data.grandTotal.toFixed(2)}`, totalsValueX, finalY, { align: "right" });
+  doc.text(`Rs. ${data.grandTotal.toFixed(2)}`, totalsValueX, finalY, { align: "right" });
   finalY += 8;
 
   // Words & Footnote
@@ -597,7 +609,7 @@ export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffe
   if (data.ewayBillRequired) {
     doc.setFont("helvetica", "bold");
     doc.setTextColor(180, 40, 20);
-    doc.text("e-Way Bill Required (Consignment > ₹50,000)", rightX, y + 20.5);
+    doc.text("e-Way Bill Required (Consignment > Rs. 50,000)", rightX, y + 20.5);
   }
 
   y = Math.max(sellerY, y + 24) + 2;
@@ -666,7 +678,7 @@ export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffe
     }
   });
 
-  autoTable(doc, {
+  runAutoTable(doc, {
     startY: y,
     head: tableHeaders,
     body: tableBody,
@@ -707,25 +719,25 @@ export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffe
   doc.setTextColor(60, 60, 60);
 
   doc.text("Taxable Amount:", totalsX, finalY);
-  doc.text(`₹ ${data.subtotalTaxable.toFixed(2)}`, totalsValX, finalY, { align: "right" });
+  doc.text(`Rs. ${data.subtotalTaxable.toFixed(2)}`, totalsValX, finalY, { align: "right" });
   finalY += 4.5;
 
   if (data.isInterState) {
     doc.text("IGST Total:", totalsX, finalY);
-    doc.text(`₹ ${data.igstTotal.toFixed(2)}`, totalsValX, finalY, { align: "right" });
+    doc.text(`Rs. ${data.igstTotal.toFixed(2)}`, totalsValX, finalY, { align: "right" });
     finalY += 4.5;
   } else {
     doc.text("CGST Total:", totalsX, finalY);
-    doc.text(`₹ ${data.cgstTotal.toFixed(2)}`, totalsValX, finalY, { align: "right" });
+    doc.text(`Rs. ${data.cgstTotal.toFixed(2)}`, totalsValX, finalY, { align: "right" });
     finalY += 4.5;
     doc.text("SGST Total:", totalsX, finalY);
-    doc.text(`₹ ${data.sgstTotal.toFixed(2)}`, totalsValX, finalY, { align: "right" });
+    doc.text(`Rs. ${data.sgstTotal.toFixed(2)}`, totalsValX, finalY, { align: "right" });
     finalY += 4.5;
   }
 
   if (data.roundOff !== 0) {
     doc.text("Round-off (Sec 170):", totalsX, finalY);
-    doc.text(`₹ ${data.roundOff.toFixed(2)}`, totalsValX, finalY, { align: "right" });
+    doc.text(`Rs. ${data.roundOff.toFixed(2)}`, totalsValX, finalY, { align: "right" });
     finalY += 4.5;
   }
 
@@ -737,7 +749,7 @@ export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffe
   doc.setFontSize(10);
   doc.setTextColor(0, 0, 0);
   doc.text("Grand Total:", totalsX, finalY);
-  doc.text(`₹ ${data.grandTotal.toFixed(2)}`, totalsValX, finalY, { align: "right" });
+  doc.text(`Rs. ${data.grandTotal.toFixed(2)}`, totalsValX, finalY, { align: "right" });
 
   // Amount in Words
   finalY += 7;
