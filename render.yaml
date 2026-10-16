@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     region: singapore # Closest to India for lowest latency
-    buildCommand: npm install && npx prisma generate && npm run build
+    buildCommand: npm install --include=dev && npx prisma generate && npm run build
     startCommand: npm run start
     envVars:
       - key: NODE_ENV
