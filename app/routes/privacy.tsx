@@ -1,8 +1,8 @@
-// Public page, linked from the App Store listing. Fill in COMPANY before publishing.
+// Public page, linked from the App Store listing.
 const COMPANY = {
-  name: "[LEGAL COMPANY NAME]",
-  address: "[BUSINESS ADDRESS]",
-  email: "[SUPPORT EMAIL]",
+  name: "WOM Media",
+  address: "Berger Tower, Floor 19, Plot no C-001/A2, Sector 16B, Noida, Gautam Buddha Nagar, Uttar Pradesh 201301",
+  email: "shreya.mehraworks@gmail.com",
 };
 const UPDATED = "4 November 2026";
 
