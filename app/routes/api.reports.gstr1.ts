@@ -1,6 +1,7 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { hasPaidFeatures } from "../services/plans.server";
 import {
   buildGSTR1Json,
   generateGSTR1Workbook,
@@ -40,6 +41,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }),
     prisma.storeSetting.findUnique({ where: { shop } }),
   ]);
+
+  if (!hasPaidFeatures(setting?.plan)) {
+    return new Response("GSTR-1 files are included in the Growth and Pro plans. Start a free trial in Plan & Billing.", { status: 402 });
+  }
 
   if (setting?.taxScheme === "composition") {
     return new Response("Composition dealers file CMP-08 and GSTR-4, not GSTR-1", { status: 400 });

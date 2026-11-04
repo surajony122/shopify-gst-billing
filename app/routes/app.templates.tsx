@@ -101,6 +101,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const setting = await prisma.storeSetting.findUnique({ where: { shop: session.shop } });
 
   return json({
+    paid: setting?.plan === "Growth" || setting?.plan === "Pro",
     form: {
       invoiceTemplate: setting?.invoiceTemplate || "standard_b2b",
       brandColor: setting?.brandColor || "#212B36",
@@ -213,7 +214,7 @@ const SAMPLE_INVOICE = {
 };
 
 export default function TemplateEditorPage() {
-  const { form: saved, seller } = useLoaderData<typeof loader>();
+  const { paid, form: saved, seller } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -258,6 +259,11 @@ export default function TemplateEditorPage() {
       ]}
     >
       <BlockStack gap="400">
+        {!paid && (
+          <Banner tone="info" title="Free plan uses the Standard template">
+            <p>Other templates, your logo and your signature print on Growth and Pro. You can start a 7-day free trial in Plan & Billing.</p>
+          </Banner>
+        )}
         {actionData && (
           <Banner tone={actionData.success ? "success" : "critical"} onDismiss={() => {}}>
             <p>{actionData.message}</p>

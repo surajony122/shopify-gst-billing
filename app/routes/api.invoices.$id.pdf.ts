@@ -1,6 +1,7 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { hasPaidFeatures, isInvoiceOverLimit } from "../services/plans.server";
 import { cleanStateName } from "../services/gst-engine";
 import { brandingFromSettings, generateGSTInvoicePDF } from "../services/pdf-generator.server";
 
@@ -23,6 +24,12 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
   const setting = await prisma.storeSetting.findUnique({
     where: { shop: invoice.shop },
   });
+
+  if (await isInvoiceOverLimit(session.shop, invoice, setting?.plan)) {
+    return new Response("This invoice is over your plan's monthly limit. Upgrade in Plan & Billing to download it.", { status: 402 });
+  }
+  const paid = hasPaidFeatures(setting?.plan);
+  const branding = await brandingFromSettings(setting);
 
   const shipTo = invoice.shippingAddress as any;
   // A saved "TAX INVOICE" title must not appear on a composition dealer's Bill of Supply.
@@ -80,9 +87,12 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
       igstTotal: invoice.igstTotal,
       roundOff: invoice.roundOffAmount,
       grandTotal: invoice.grandTotal,
-      ...(await brandingFromSettings(setting)),
+      ...branding,
+      ...(paid ? {} : { logoDataUrl: undefined, signatureDataUrl: undefined }),
       paymentMode: invoice.paymentMode || undefined,
-      template: (new URL(request.url).searchParams.get("template") as string) || (invoice as any).templateUsed || setting?.invoiceTemplate || "standard_b2b",
+      template: paid
+        ? new URL(request.url).searchParams.get("template") || invoice.templateUsed || setting?.invoiceTemplate || "standard_b2b"
+        : "standard_b2b",
       ewayBillRequired: (invoice as any).ewayBillRequired || false,
       customization: {
         invoiceTitle: `${invoice.status === "CANCELLED" ? "CANCELLED - " : ""}${baseTitle}`,

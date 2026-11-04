@@ -51,3 +51,5 @@
   .ong-shell { flex-direction: column; }
   .ong-side { width: 100%; height: auto; position: static; border-right: none; border-bottom: 1px solid var(--ong-border); }
 }
+
+.ong-limit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 16px 0; padding: 10px 14px; border-radius: 10px; background: #fdf3dc; color: #8a5a00; font-size: 13px; }

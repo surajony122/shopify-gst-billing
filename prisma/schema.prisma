@@ -28,6 +28,7 @@ model Session {
 model StoreSetting {
   id                  String   @id @default(uuid())
   shop                String   @unique
+  plan                String   @default("Free")
   legalName           String?
   tradeName           String?
   gstin               String?

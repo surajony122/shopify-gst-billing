@@ -2,6 +2,7 @@ import "@shopify/shopify-app-remix/adapters/node";
 import {
   ApiVersion,
   AppDistribution,
+  BillingInterval,
   shopifyApp,
 } from "@shopify/shopify-app-remix/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
@@ -12,6 +13,9 @@ function requireEnv(name: string): string {
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
   return value;
 }
+
+export const GROWTH_PLAN = "Growth";
+export const PRO_PLAN = "Pro";
 
 const shopify = shopifyApp({
   apiKey: requireEnv("SHOPIFY_API_KEY"),
@@ -31,6 +35,16 @@ const shopify = shopifyApp({
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
   isEmbeddedApp: true,
+  billing: {
+    [GROWTH_PLAN]: {
+      trialDays: 7,
+      lineItems: [{ amount: 6, currencyCode: "USD", interval: BillingInterval.Every30Days }],
+    },
+    [PRO_PLAN]: {
+      trialDays: 7,
+      lineItems: [{ amount: 15, currencyCode: "USD", interval: BillingInterval.Every30Days }],
+    },
+  },
   future: {
     unstable_newEmbeddedAuthStrategy: true,
   },

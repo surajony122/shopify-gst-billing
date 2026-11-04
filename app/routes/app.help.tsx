@@ -117,6 +117,7 @@ export default function HelpPage() {
             <List.Item><strong>e-Invoicing:</strong> a list of invoices that may need an IRN or e-Way Bill.</List.Item>
             <List.Item><strong>GSTR-1 Reports:</strong> monthly totals and return files.</List.Item>
             <List.Item><strong>GST Settings:</strong> business details, tax rules and HSN codes.</List.Item>
+            <List.Item><strong>Plan & Billing:</strong> your plan, monthly invoice use and 7-day free trial.</List.Item>
           </List>
         </Section>
 
