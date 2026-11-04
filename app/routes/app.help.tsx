@@ -61,7 +61,7 @@ export default function HelpPage() {
           <List>
             <List.Item><strong>Same state as you:</strong> the invoice uses CGST + SGST.</List.Item>
             <List.Item><strong>Different state:</strong> the invoice uses IGST.</List.Item>
-            <List.Item><strong>Buyer entered a GSTIN at checkout:</strong> it becomes a B2B invoice with its own number series.</List.Item>
+            <List.Item><strong>Order already carries a valid GSTIN:</strong> it becomes a B2B invoice with its own number series. The app does not add a GSTIN field to your checkout yet.</List.Item>
             <List.Item><strong>Prices include tax in Shopify:</strong> tax is worked out from inside the price, so the invoice total matches what was paid.</List.Item>
             <List.Item><strong>Shipping:</strong> it is added as its own line and taxed using your Tax Rules setting.</List.Item>
           </List>
@@ -88,6 +88,7 @@ export default function HelpPage() {
             <List.Item><strong>Order cancelled before an invoice exists:</strong> no invoice is created.</List.Item>
           </List>
           <Text as="p">Credit notes run in the background and are included in your GSTR-1 file. The app has no separate page for them.</Text>
+          <Text as="p">Returns settled by a store credit app, without a refund in Shopify, do not create a credit note. Ask your CA how to record those for GST.</Text>
         </Section>
 
         <Section id="gstr1" title="GSTR-1 report">
@@ -111,7 +112,7 @@ export default function HelpPage() {
         <Section id="pages" title="Each page explained">
           <List>
             <List.Item><strong>Overview:</strong> a summary of invoices, sales and tax.</List.Item>
-            <List.Item><strong>GST Invoices:</strong> search, view and download invoices, and open credit notes.</List.Item>
+            <List.Item><strong>GST Invoices:</strong> search, view and download invoices.</List.Item>
             <List.Item><strong>Template Editor:</strong> how your invoice looks.</List.Item>
             <List.Item><strong>Rules & Routing:</strong> when invoices are created, their numbering, and which design each order uses.</List.Item>
             <List.Item><strong>e-Invoicing:</strong> a list of invoices that may need an IRN or e-Way Bill.</List.Item>
@@ -127,6 +128,7 @@ export default function HelpPage() {
             <List.Item>It does not file GST returns.</List.Item>
             <List.Item>It does not email invoices to customers yet.</List.Item>
             <List.Item>It supports one GSTIN per store.</List.Item>
+            <List.Item>It does not collect a buyer's GSTIN at checkout yet.</List.Item>
           </List>
         </Section>
 
