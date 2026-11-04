@@ -22,7 +22,7 @@ const shopify = shopifyApp({
   apiSecretKey: requireEnv("SHOPIFY_API_SECRET"),
   apiVersion: ApiVersion.October26,
   scopes: process.env.SCOPES?.split(",") || ["read_products", "read_orders"],
-  appUrl: process.env.APP_URL || "https://gst.thewommedia.com",
+  appUrl: process.env.APP_URL || process.env.SHOPIFY_APP_URL || "https://gst.thewommedia.com",
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
