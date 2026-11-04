@@ -1,67 +1,48 @@
-import React, { useState } from "react";
-import {
-  reactExtension,
-  useApplyAttributeChange,
-  useAttributes,
-  BlockStack,
-  Checkbox,
-  TextField,
-  Text,
-  Banner,
-} from "@shopify/ui-extensions-react/checkout";
+import "@shopify/ui-extensions/preact";
+import { render } from "preact";
+import { useState } from "preact/hooks";
 
-export default reactExtension(
-  "purchase.checkout.delivery-address.render-after",
-  () => <Extension />
-);
+export default async () => {
+  render(<Extension />, document.body);
+};
+
+const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
 
 function Extension() {
-  const applyAttributeChange = useApplyAttributeChange();
-  const attributes = useAttributes();
-
+  const attributes = shopify.attributes.value;
   const existingGstin = attributes?.find((a) => a.key === "gstin")?.value || "";
   const existingCompany = attributes?.find((a) => a.key === "company_name")?.value || "";
 
   const [isB2B, setIsB2B] = useState(Boolean(existingGstin));
   const [gstin, setGstin] = useState(existingGstin);
   const [companyName, setCompanyName] = useState(existingCompany);
-  const [error, setError] = useState<string | null>(null);
 
-  const validateGSTIN = (val: string) => {
-    const clean = val.trim().toUpperCase();
-    const regex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-    if (!regex.test(clean)) {
-      return "Please enter a valid 15-digit GSTIN (e.g. 27AABCU9603R1ZM)";
-    }
+  // Some checkouts, such as express wallets, do not allow attributes to be changed.
+  if (!shopify.instructions.value.attributes.canUpdateAttributes) {
     return null;
-  };
+  }
 
-  const handleGstinChange = async (value: string) => {
-    const clean = value.toUpperCase();
+  const saveAttribute = (key: string, value: string) =>
+    shopify.applyAttributeChange({ type: "updateAttribute", key, value });
+
+  const isValid = GSTIN_REGEX.test(gstin);
+  let error: string | undefined;
+  if (gstin.length > 0 && gstin.length !== 15) {
+    error = "GSTIN must be exactly 15 characters";
+  } else if (gstin.length === 15 && !isValid) {
+    error = "Please enter a valid 15-digit GSTIN (e.g. 27AABCU9603R1ZM)";
+  }
+
+  const handleGstinInput = async (value: string) => {
+    const clean = value.trim().toUpperCase();
     setGstin(clean);
-
-    if (clean.length === 15) {
-      const err = validateGSTIN(clean);
-      setError(err);
-      if (!err) {
-        await applyAttributeChange({
-          type: "updateAttribute",
-          key: "gstin",
-          value: clean,
-        });
-      }
-    } else {
-      setError(clean.length > 0 ? "GSTIN must be exactly 15 characters" : null);
-    }
+    // An edited GSTIN must not leave the earlier valid one on the order.
+    await saveAttribute("gstin", GSTIN_REGEX.test(clean) ? clean : "");
   };
 
   const handleCompanyChange = async (value: string) => {
     setCompanyName(value);
-    await applyAttributeChange({
-      type: "updateAttribute",
-      key: "company_name",
-      value,
-    });
+    await saveAttribute("company_name", value);
   };
 
   const handleCheckboxChange = async (checked: boolean) => {
@@ -69,50 +50,40 @@ function Extension() {
     if (!checked) {
       setGstin("");
       setCompanyName("");
-      setError(null);
-      await applyAttributeChange({
-        type: "updateAttribute",
-        key: "gstin",
-        value: "",
-      });
-      await applyAttributeChange({
-        type: "updateAttribute",
-        key: "company_name",
-        value: "",
-      });
+      await saveAttribute("gstin", "");
+      await saveAttribute("company_name", "");
     }
   };
 
   return (
-    <BlockStack spacing="tight">
-      <Checkbox
+    <s-stack gap="base">
+      <s-checkbox
+        label="I am purchasing for a business (Claim GST Input Tax Credit)"
         checked={isB2B}
-        onChange={handleCheckboxChange}
-      >
-        I am purchasing for a business (Claim GST Input Tax Credit)
-      </Checkbox>
+        onChange={(event) => handleCheckboxChange((event.currentTarget as HTMLInputElement).checked)}
+      />
 
       {isB2B && (
-        <BlockStack spacing="tight">
-          <TextField
+        <s-stack gap="base">
+          <s-text-field
             label="GSTIN (15 Digits)"
             value={gstin}
-            onChange={handleGstinChange}
+            error={error}
+            onInput={(event) => handleGstinInput((event.currentTarget as HTMLInputElement).value)}
           />
-          {error && <Text appearance="critical">{error}</Text>}
-          {!error && gstin.length === 15 && (
-            <Banner status="success">
-              ✓ Valid GSTIN. GST Invoice will be issued for ITC claim.
-            </Banner>
+          {isValid && (
+            <s-banner tone="success">
+              Valid GSTIN. GST Invoice will be issued for ITC claim.
+            </s-banner>
           )}
 
-          <TextField
+          <s-text-field
             label="Registered Company / Legal Name"
             value={companyName}
-            onChange={handleCompanyChange}
+            onChange={(event) => handleCompanyChange((event.currentTarget as HTMLInputElement).value)}
           />
-        </BlockStack>
+        </s-stack>
       )}
-    </BlockStack>
+    </s-stack>
   );
 }

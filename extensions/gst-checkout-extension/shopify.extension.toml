@@ -1,4 +1,4 @@
-api_version = "2024-10"
+api_version = "2026-10"
 
 [[extensions]]
 name = "B2B GSTIN Collector"
@@ -9,7 +9,3 @@ type = "ui_extension"
 [[extensions.targeting]]
 module = "./src/Checkout.tsx"
 target = "purchase.checkout.delivery-address.render-after"
-
-[extensions.capabilities]
-api_access = true
-network_access = true
