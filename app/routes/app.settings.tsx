@@ -109,7 +109,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         };
       });
     } catch (err) {
-      console.error("Error fetching catalog:", err);
+      // The Shopify library throws a Response here, so its message has to be read from the body.
+      const detail = err instanceof Response ? `${err.status} ${await err.clone().text()}` : err;
+      console.error("Error fetching catalog:", detail);
       loadFailed = true;
     }
   }
