@@ -5,6 +5,7 @@ import { boundary } from "@shopify/shopify-app-remix/server";
 import { AppProvider } from "@shopify/shopify-app-remix/react";
 import polarisTranslations from "@shopify/polaris/locales/en.json";
 import { authenticate } from "../shopify.server";
+import prisma from "../db.server";
 import { getPlanUsage } from "../services/plans.server";
 import { AppIcon } from "../components/AppIcon";
 import { ICON_SPRITE } from "../components/icon-sprite";
@@ -33,6 +34,14 @@ const NAV_GROUPS = [
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
+
+  // Older sessions hold a non-expiring token, which Shopify refuses with a 403 for newer
+  // public apps. Removing the row makes the next request exchange for an expiring token.
+  if (!session.isOnline && !session.refreshToken) {
+    console.info(`Replacing non-expiring offline token for ${session.shop}`);
+    await prisma.session.deleteMany({ where: { id: session.id } });
+  }
+
   return json({ apiKey: process.env.SHOPIFY_API_KEY || "", shop: session.shop, usage: await getPlanUsage(session.shop) });
 };
 
