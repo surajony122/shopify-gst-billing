@@ -30,7 +30,7 @@ const shopify = shopifyApp({
     "read_locations",
     "read_customer_events",
   ],
-  appUrl: process.env.APP_URL || "https://shopify-gst-billing.onrender.com",
+  appUrl: process.env.APP_URL || "https://gst.thewommedia.com",
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
