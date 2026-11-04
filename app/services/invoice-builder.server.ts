@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import prisma from "../db.server";
 import {
   calculateOrderGST,
@@ -556,28 +557,38 @@ export async function regenerateInvoices(
 
 // ---------- Credit notes and cancellations ----------
 
+/** Holds one invoice's row so its refund and cancellation webhooks run one after the other. */
+const lockInvoice = (tx: Prisma.TransactionClient, invoiceId: string) =>
+  tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${invoiceId} FOR UPDATE`;
+
 /**
  * Records a credit note, capped at what has not been credited yet so a refund and
- * a cancellation for the same order cannot reverse more than the invoice total.
+ * a cancellation for the same order cannot reverse more than was paid. The amount paid
+ * excludes the invoice's round-off, so a full refund reverses all of its tax.
  */
 export async function createCreditNote(
   shop: string,
-  invoice: { id: string; grandTotal: number; subtotalTaxable: number; cgstTotal: number; sgstTotal: number; igstTotal: number },
+  invoice: { id: string },
   details: { shopifyRefundId: string; amount: number; reason: string }
 ): Promise<boolean> {
-  const credited = await prisma.creditNote.aggregate({
-    where: { invoiceId: invoice.id },
-    _sum: { grandTotalAdjusted: true },
-  });
-  const remaining = invoice.grandTotal - (credited._sum.grandTotalAdjusted || 0);
-  const amount = Math.min(details.amount, remaining);
-  if (amount < 0.01) return false;
-
-  const ratio = invoice.grandTotal > 0 ? amount / invoice.grandTotal : 0;
-  const scaled = (value: number) => Number((value * ratio).toFixed(2));
-
   try {
-    await prisma.$transaction(async (tx) => {
+    return await prisma.$transaction(async (tx) => {
+      await lockInvoice(tx, invoice.id);
+      const current = await tx.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
+      // A cancelled invoice is already out of the GST return, so there is nothing to reverse.
+      if (current.status === "CANCELLED") return false;
+
+      const credited = await tx.creditNote.aggregate({
+        where: { invoiceId: invoice.id },
+        _sum: { grandTotalAdjusted: true },
+      });
+      const paid = current.grandTotal - current.roundOffAmount;
+      const amount = Math.min(details.amount, paid - (credited._sum.grandTotalAdjusted || 0));
+      if (amount < 0.01) return false;
+
+      const ratio = paid > 0 ? amount / paid : 0;
+      const scaled = (value: number) => Number((value * ratio).toFixed(2));
+
       const counter = await tx.storeSetting.upsert({
         where: { shop },
         update: { nextCreditNoteNumber: { increment: 1 } },
@@ -595,15 +606,15 @@ export async function createCreditNote(
           ),
           financialYear: getCurrentFinancialYear(),
           reason: details.reason,
-          taxableAdjusted: scaled(invoice.subtotalTaxable),
-          cgstAdjusted: scaled(invoice.cgstTotal),
-          sgstAdjusted: scaled(invoice.sgstTotal),
-          igstAdjusted: scaled(invoice.igstTotal),
+          taxableAdjusted: scaled(current.subtotalTaxable),
+          cgstAdjusted: scaled(current.cgstTotal),
+          sgstAdjusted: scaled(current.sgstTotal),
+          igstAdjusted: scaled(current.igstTotal),
           grandTotalAdjusted: Number(amount.toFixed(2)),
         },
       });
+      return true;
     });
-    return true;
   } catch (error: any) {
     if (error?.code === "P2002") return false;
     throw error;
@@ -618,20 +629,25 @@ export type CancelOutcome = "no_invoice" | "cancelled" | "credit_note" | "nothin
  * and a credit note reverses whatever has not been credited.
  */
 export async function cancelInvoiceForOrder(shop: string, orderId: string, now: Date = new Date()): Promise<CancelOutcome> {
-  const invoice = await prisma.invoice.findFirst({
-    where: { shop, shopifyOrderId: orderId },
-    include: { _count: { select: { creditNotes: true } } },
-  });
+  const invoice = await prisma.invoice.findFirst({ where: { shop, shopifyOrderId: orderId } });
   if (!invoice) return "no_invoice";
-  if (invoice.status === "CANCELLED") return "nothing_to_do";
 
   const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
   const { start } = getReturnPeriodRange(ist.getUTCMonth() + 1, ist.getUTCFullYear());
 
-  if (invoice.grandTotal === 0 || (invoice._count.creditNotes === 0 && invoice.invoiceDate >= start)) {
-    await prisma.invoice.update({ where: { id: invoice.id }, data: { status: "CANCELLED", cancelledAt: now } });
-    return "cancelled";
-  }
+  const cancelled = await prisma.$transaction(async (tx) => {
+    await lockInvoice(tx, invoice.id);
+    const current = await tx.invoice.findUniqueOrThrow({
+      where: { id: invoice.id },
+      include: { _count: { select: { creditNotes: true } } },
+    });
+    if (current.status === "CANCELLED") return "already" as const;
+    if (current.grandTotal !== 0 && (current._count.creditNotes > 0 || current.invoiceDate < start)) return "keep" as const;
+    await tx.invoice.update({ where: { id: invoice.id }, data: { status: "CANCELLED", cancelledAt: now } });
+    return "done" as const;
+  });
+  if (cancelled === "already") return "nothing_to_do";
+  if (cancelled === "done") return "cancelled";
 
   const created = await createCreditNote(shop, invoice, {
     shopifyRefundId: `cancel-${orderId}`,

@@ -36,7 +36,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       select: { invoiceNumber: true },
     }),
     prisma.creditNote.findMany({
-      where: { shop, date: { gte: start, lt: end } },
+      // A cancelled invoice is not in the return, so its credit notes must not be either.
+      where: { shop, date: { gte: start, lt: end }, invoice: { status: "ACTIVE" } },
       include: { invoice: { include: { lineItems: true } } },
     }),
     prisma.storeSetting.findUnique({ where: { shop } }),
