@@ -11,7 +11,7 @@ import {
 } from "@shopify/ui-extensions-react/checkout";
 
 export default reactExtension(
-  "purchase.checkout.shipping-address.render-after",
+  "purchase.checkout.delivery-address.render-after",
   () => <Extension />
 );
 
@@ -19,8 +19,8 @@ function Extension() {
   const applyAttributeChange = useApplyAttributeChange();
   const attributes = useAttributes();
 
-  const existingGstin = attributes.find((a) => a.key === "gstin")?.value || "";
-  const existingCompany = attributes.find((a) => a.key === "company_name")?.value || "";
+  const existingGstin = attributes?.find((a) => a.key === "gstin")?.value || "";
+  const existingCompany = attributes?.find((a) => a.key === "company_name")?.value || "";
 
   const [isB2B, setIsB2B] = useState(Boolean(existingGstin));
   const [gstin, setGstin] = useState(existingGstin);

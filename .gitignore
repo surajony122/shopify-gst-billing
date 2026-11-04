@@ -22,3 +22,6 @@ prisma/*.db-journal
 # OS Files
 .DS_Store
 Thumbs.db
+
+# Shopify extension build output
+extensions/*/manifest.json

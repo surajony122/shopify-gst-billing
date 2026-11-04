@@ -22,13 +22,9 @@ import { useState, useCallback } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { InvoiceHTMLPreview } from "../components/InvoiceHTMLPreview";
-import {
-  calculateOrderGST,
-  formatInvoiceNumber,
-  getCurrentFinancialYear,
-  getStateCodeFromName,
-  getStateCodeFromGSTIN,
-} from "../services/gst-engine";
+import { cleanStateName } from "../services/gst-engine";
+import { createInvoiceForOrder, normalizeGraphqlOrder } from "../services/invoice-builder.server";
+import { downloadSecureFile, openSecureFile } from "../utils/secure-file";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, admin } = await authenticate.admin(request);
@@ -38,219 +34,68 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (intent === "sync_past_orders") {
     try {
-      const setting = await prisma.storeSetting.findUnique({ where: { shop } });
-      const sellerStateCode = setting?.stateCode || "27";
-      let nextSeq = setting?.nextInvoiceNumber || 1;
-      let nextB2BSeq = (setting as any)?.nextB2BInvoiceNumber || 1;
-      const prefix = setting?.invoicePrefix || "INV/{FY}/";
-      const financialYear = getCurrentFinancialYear();
-
-      // Fetch saved HSN catalogs and collection mappings for accurate HSN tagging
-      const [hsnCatalogs, collectionHsns] = await Promise.all([
-        prisma.hsnCatalog.findMany({ where: { shop } }),
-        prisma.collectionHsn.findMany({ where: { shop } }),
-      ]);
-
-      // Safe query without Level 2 protected customer data to guarantee success
-      const response = await admin.graphql(`
-        query getPastOrders {
-          orders(first: 50, sortKey: CREATED_AT, reverse: true) {
-            nodes {
-              id
-              name
-              createdAt
-              displayFinancialStatus
-              customAttributes {
-                key
-                value
-              }
-              lineItems(first: 50) {
-                nodes {
-                  id
-                  title
-                  variantTitle
-                  sku
-                  quantity
-                  originalUnitPriceSet {
-                    shopMoney {
-                      amount
-                    }
+      const fetchOrders = async (withAddress: boolean) => {
+        const response = await admin.graphql(`
+          query getPastOrders {
+            orders(first: 50, sortKey: CREATED_AT, reverse: true) {
+              nodes {
+                id
+                name
+                createdAt
+                taxesIncluded
+                ${withAddress ? "shippingAddress { province }" : ""}
+                totalPriceSet { shopMoney { amount } }
+                shippingLine { discountedPriceSet { shopMoney { amount } } }
+                customAttributes { key value }
+                lineItems(first: 50) {
+                  nodes {
+                    title
+                    variantTitle
+                    sku
+                    quantity
+                    product { id }
+                    variant { id }
+                    originalUnitPriceSet { shopMoney { amount } }
+                    discountAllocations { allocatedAmountSet { shopMoney { amount } } }
                   }
                 }
               }
             }
           }
+        `);
+        const body = (await response.json()) as any;
+        if (body.errors?.length) {
+          throw new Error(body.errors[0]?.message || "Could not retrieve orders");
         }
-      `);
+        return body.data?.orders?.nodes || [];
+      };
 
-      const jsonRes = await response.json();
-
-      if (jsonRes.errors && jsonRes.errors.length > 0) {
-        return json({
-          success: false,
-          message: `Shopify GraphQL Error: ${jsonRes.errors[0]?.message || "Could not retrieve orders"}`,
-        });
+      // Addresses are protected customer data. Without that access Shopify rejects the
+      // query, and the buyer's state cannot be determined for non-B2B orders.
+      let addressesAvailable = true;
+      let orders: any[];
+      try {
+        orders = await fetchOrders(true);
+      } catch {
+        addressesAvailable = false;
+        orders = await fetchOrders(false);
       }
 
-      const orders = jsonRes.data?.orders?.nodes || [];
       let syncedCount = 0;
-
       for (const order of orders) {
-        const numericOrderId = order.id.replace("gid://shopify/Order/", "");
-
-        const existing = await prisma.invoice.findUnique({
-          where: { shopifyOrderId: numericOrderId },
-        });
-        if (existing) continue;
-
-        let buyerGstin: string | null = null;
-        let buyerTradeName: string | null = null;
-
-        (order.customAttributes || []).forEach((attr: any) => {
-          const k = attr.key?.toLowerCase();
-          if (["gstin", "gst_number", "gst_in", "tax_id"].includes(k)) {
-            buyerGstin = attr.value?.trim().toUpperCase();
-          }
-          if (["company_name", "business_name", "trade_name"].includes(k)) {
-            buyerTradeName = attr.value?.trim();
-          }
-        });
-
-        // Determine buyer state code
-        let buyerStateCode = buyerGstin ? getStateCodeFromGSTIN(buyerGstin) : null;
-        if (!buyerStateCode) {
-          buyerStateCode = sellerStateCode; // Default to same state (Intrastate)
-        }
-
-        // Process line items with HSN lookup and price-tier tax rules
-        const lineItemsInput = (order.lineItems?.nodes || []).map((item: any) => {
-          const unitPrice = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || "0");
-          
-          // Match HSN catalog by SKU or title
-          const catalogMatch = hsnCatalogs.find((c) => (c.sku && c.sku === item.sku) || c.productTitle === item.title);
-          let hsnCode = catalogMatch?.hsnCode || "999999";
-          let baseRate = catalogMatch?.gstRate ?? 18.0;
-
-          // Apply statutory Apparel & Footwear ₹1,000 price point rule (5% vs 12%)
-          const tierResolution = (setting as any)?.apparelFootwearTierRule ?? true
-            ? (hsnCode.startsWith("61") || hsnCode.startsWith("62") || hsnCode.startsWith("64"))
-              ? unitPrice <= 1000 ? 5.0 : 12.0
-              : baseRate
-            : baseRate;
-
-          return {
-            title: item.title,
-            variantTitle: item.variantTitle,
-            sku: item.sku,
-            hsnCode,
-            quantity: item.quantity,
-            unitPrice,
-            discountAmount: 0,
-            gstRate: tierResolution,
-          };
-        });
-
-        // Calculate order GST
-        const taxResult = calculateOrderGST({
-          sellerStateCode,
-          buyerStateCode,
-          lineItems: lineItemsInput,
-          roundOff: setting?.roundOffSection170 ?? true,
-        });
-
-        // Evaluate Invoicing Rules (Amount-based, B2B, e-Way Bill, Template)
-        const isB2B = Boolean(buyerGstin);
-        let selectedTemplate = setting?.invoiceTemplate || "standard_b2b";
-        let activePrefix = prefix;
-        let invoiceSeq = nextSeq;
-
-        if (isB2B && (setting as any)?.b2bForceTemplate) {
-          selectedTemplate = (setting as any)?.b2bForcedTemplate || "standard_b2b";
-        } else if ((setting as any)?.amountRulesEnabled) {
-          if (taxResult.grandTotal >= ((setting as any)?.highValueThreshold ?? 10000)) {
-            selectedTemplate = (setting as any)?.highValueTemplate || "standard_b2b";
-          } else if (taxResult.grandTotal <= ((setting as any)?.lowValueThreshold ?? 1000)) {
-            selectedTemplate = (setting as any)?.lowValueTemplate || "modern_d2c";
-          }
-        }
-
-        if (isB2B && (setting as any)?.b2bInvoicePrefix) {
-          activePrefix = (setting as any).b2bInvoicePrefix;
-          invoiceSeq = nextB2BSeq;
-          nextB2BSeq += 1;
-        } else {
-          nextSeq += 1;
-        }
-
-        const ewayBillRequired = taxResult.grandTotal >= ((setting as any)?.ewayBillNoticeThreshold ?? 50000);
-        const invoiceNumber = formatInvoiceNumber(activePrefix, invoiceSeq);
-
-        await prisma.invoice.create({
-          data: {
-            shop,
-            shopifyOrderId: numericOrderId,
-            shopifyOrderNumber: order.name?.replace("#", "") || numericOrderId,
-            invoiceNumber,
-            financialYear,
-            orderDate: new Date(order.createdAt),
-            isB2B,
-            buyerGstin,
-            buyerTradeName: buyerTradeName || (buyerGstin ? "B2B Business Buyer" : "Retail Customer (B2C)"),
-            placeOfSupplyState: taxResult.placeOfSupplyState,
-            placeOfSupplyCode: taxResult.buyerStateCode,
-            isInterState: taxResult.isInterState,
-            subtotalTaxable: taxResult.subtotalTaxable,
-            cgstTotal: taxResult.cgstTotal,
-            sgstTotal: taxResult.sgstTotal,
-            igstTotal: taxResult.igstTotal,
-            roundOffAmount: taxResult.roundOffAmount,
-            grandTotal: taxResult.grandTotal,
-            templateUsed: selectedTemplate,
-            ewayBillRequired,
-            lineItems: {
-              create: taxResult.lineItems.map((li) => ({
-                title: li.title,
-                variantTitle: li.variantTitle,
-                sku: li.sku,
-                hsnCode: li.hsnCode,
-                quantity: li.quantity,
-                unitPrice: li.unitPrice,
-                discountAmount: li.discountAmount,
-                taxableValue: li.taxableValue,
-                gstRate: li.gstRate,
-                cgstRate: li.cgstRate,
-                cgstAmount: li.cgstAmount,
-                sgstRate: li.sgstRate,
-                sgstAmount: li.sgstAmount,
-                igstRate: li.igstRate,
-                igstAmount: li.igstAmount,
-                totalAmount: li.totalAmount,
-              })),
-            },
-          },
-        });
-
-        syncedCount += 1;
+        const result = await createInvoiceForOrder(shop, normalizeGraphqlOrder(order));
+        if (result.created) syncedCount += 1;
       }
 
-      await prisma.storeSetting.upsert({
-        where: { shop },
-        update: {
-          nextInvoiceNumber: nextSeq,
-          nextB2BInvoiceNumber: nextB2BSeq,
-        },
-        create: {
-          shop,
-          nextInvoiceNumber: nextSeq,
-          nextB2BInvoiceNumber: nextB2BSeq,
-        },
-      });
+      const summary = syncedCount > 0
+        ? `Successfully synced ${syncedCount} orders with dynamic rules & templates!`
+        : "All existing orders already have GST invoices generated.";
 
       return json({
         success: true,
-        message: syncedCount > 0
-          ? `Successfully synced ${syncedCount} orders with dynamic rules & templates!`
-          : "All existing orders already have GST invoices generated.",
+        message: addressesAvailable || syncedCount === 0
+          ? summary
+          : `${summary} Shopify did not allow access to shipping addresses, so non-B2B orders use your own state as the place of supply. Please review them.`,
       });
     } catch (err: any) {
       console.error("Error in sync_past_orders:", err);
@@ -310,13 +155,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       invoiceNumber: inv.invoiceNumber,
       orderNumber: inv.shopifyOrderNumber,
       financialYear: inv.financialYear,
-      date: new Date(inv.invoiceDate).toLocaleDateString("en-IN"),
+      date: new Date(inv.invoiceDate).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
       customer: inv.buyerTradeName || "Retail Customer",
       isB2B: inv.isB2B,
       buyerGstin: inv.buyerGstin || "N/A",
-      placeOfSupplyState: inv.placeOfSupplyState,
+      placeOfSupplyState: cleanStateName(inv.placeOfSupplyState),
       placeOfSupplyCode: inv.placeOfSupplyCode,
-      placeOfSupply: `${inv.placeOfSupplyCode} - ${inv.placeOfSupplyState}`,
+      placeOfSupply: `${inv.placeOfSupplyCode} - ${cleanStateName(inv.placeOfSupplyState)}`,
       isInterState: inv.isInterState,
       subtotalTaxable: inv.subtotalTaxable,
       cgstTotal: inv.cgstTotal,
@@ -436,7 +281,7 @@ export default function InvoicesListPage() {
           <BlockStack gap="050">
             <Text as="span" variant="bodySm" fontWeight="medium">{customer}</Text>
             {isB2B ? (
-              <Badge tone="info">B2B: {buyerGstin}</Badge>
+              <Badge tone="info">{`B2B: ${buyerGstin}`}</Badge>
             ) : (
               <Text as="span" variant="bodyXs" tone="subdued">B2C</Text>
             )}
@@ -581,13 +426,10 @@ export default function InvoicesListPage() {
             primaryAction={{
               content: "Download PDF",
               onAction: () => {
-                const link = document.createElement("a");
-                link.href = `/api/invoices/${selectedInvoice.id}/pdf?template=${previewTemplate}`;
-                link.download = `Invoice-${selectedInvoice.invoiceNumber.replace(/\//g, "-")}.pdf`;
-                link.target = "_blank";
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
+                downloadSecureFile(
+                  `/api/invoices/${selectedInvoice.id}/pdf?template=${previewTemplate}`,
+                  `Invoice-${selectedInvoice.invoiceNumber.replace(/\//g, "-")}.pdf`
+                ).catch((error) => window.alert(error.message));
               },
             }}
             secondaryActions={[
@@ -624,7 +466,7 @@ export default function InvoicesListPage() {
               {
                 content: "Open PDF in New Window",
                 onAction: () => {
-                  window.open(`/api/invoices/${selectedInvoice.id}/pdf?template=${previewTemplate}`, "_blank");
+                  openSecureFile(`/api/invoices/${selectedInvoice.id}/pdf?template=${previewTemplate}`).catch((error) => window.alert(error.message));
                 },
               },
             ]}
@@ -637,7 +479,7 @@ export default function InvoicesListPage() {
                   </Text>
                   <InlineStack gap="200" blockAlign="center">
                     <Text as="span" variant="bodySm" tone="subdued">Switch Design Template:</Text>
-                    <ButtonGroup segmented>
+                    <ButtonGroup variant="segmented">
                       <Button
                         size="micro"
                         pressed={previewTemplate === "standard_b2b"}

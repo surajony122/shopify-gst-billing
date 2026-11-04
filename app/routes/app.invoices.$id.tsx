@@ -18,6 +18,8 @@ import { useState } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { InvoiceHTMLPreview } from "../components/InvoiceHTMLPreview";
+import { cleanStateName } from "../services/gst-engine";
+import { downloadSecureFile, openSecureFile } from "../utils/secure-file";
 
 export const loader = async ({ params, request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -60,9 +62,9 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
       isB2B: invoice.isB2B,
       buyerGstin: invoice.buyerGstin || "N/A",
       buyerTradeName: invoice.buyerTradeName || "Retail Customer (B2C)",
-      placeOfSupplyState: invoice.placeOfSupplyState,
+      placeOfSupplyState: cleanStateName(invoice.placeOfSupplyState),
       placeOfSupplyCode: invoice.placeOfSupplyCode,
-      placeOfSupply: `${invoice.placeOfSupplyCode} - ${invoice.placeOfSupplyState}`,
+      placeOfSupply: `${invoice.placeOfSupplyCode} - ${cleanStateName(invoice.placeOfSupplyState)}`,
       isInterState: invoice.isInterState,
       subtotalTaxable: invoice.subtotalTaxable,
       cgstTotal: invoice.cgstTotal,
@@ -117,13 +119,9 @@ export default function SingleInvoiceViewPage() {
   const pdfUrl = `/api/invoices/${invoice.id}/pdf?template=${template}`;
 
   const handleDownload = () => {
-    const link = document.createElement("a");
-    link.href = pdfUrl;
-    link.download = `Invoice-${invoice.invoiceNumber.replace(/\//g, "-")}.pdf`;
-    link.target = "_blank";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    downloadSecureFile(pdfUrl, `Invoice-${invoice.invoiceNumber.replace(/\//g, "-")}.pdf`).catch((error) =>
+      window.alert(error.message)
+    );
   };
 
   const handlePrint = () => {
@@ -178,7 +176,9 @@ export default function SingleInvoiceViewPage() {
         },
         {
           content: "Open PDF in New Window",
-          onAction: () => window.open(pdfUrl, "_blank"),
+          onAction: () => {
+            openSecureFile(pdfUrl).catch((error) => window.alert(error.message));
+          },
         },
       ]}
     >
@@ -217,7 +217,7 @@ export default function SingleInvoiceViewPage() {
               <Text as="h2" variant="headingSm">Live Invoice Preview</Text>
               <InlineStack gap="200" blockAlign="center">
                 <Text as="span" variant="bodySm" tone="subdued">Template Layout:</Text>
-                <ButtonGroup segmented>
+                <ButtonGroup variant="segmented">
                   <Button
                     size="micro"
                     pressed={template === "standard_b2b"}

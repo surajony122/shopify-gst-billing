@@ -1,12 +1,11 @@
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
+import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { useActionData, useLoaderData, useSubmit } from "@remix-run/react";
+import { useLoaderData } from "@remix-run/react";
 import {
   Page,
   Card,
   BlockStack,
   DataTable,
-  Button,
   Banner,
   Text,
   Badge,
@@ -20,100 +19,68 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  const setting = await prisma.storeSetting.findUnique({ where: { shop } });
-
-  // Get B2B Invoices that require e-invoicing
-  const b2bInvoices = await prisma.invoice.findMany({
-    where: { shop, isB2B: true },
-    orderBy: { invoiceDate: "desc" },
-    take: 30,
+  // Earlier versions stored random IRNs. No IRP connection has ever existed, so none of
+  // them are genuine. Remove this cleanup when a real IRP integration is added.
+  await prisma.invoice.updateMany({
+    where: { shop, irnStatus: "GENERATED" },
+    data: { irn: null, irnAckNo: null, irnStatus: null },
   });
 
-  return json({
-    einvoiceEnabled: setting?.einvoiceEnabled || false,
-    b2bInvoices: b2bInvoices.map((inv) => ({
-      id: inv.id,
-      invoiceNumber: inv.invoiceNumber,
-      orderNumber: inv.shopifyOrderNumber,
-      date: new Date(inv.invoiceDate).toLocaleDateString("en-IN"),
-      buyerGstin: inv.buyerGstin,
-      amount: `₹${inv.grandTotal.toFixed(2)}`,
-      irn: inv.irn || null,
-      irnStatus: inv.irnStatus || "PENDING",
-    })),
-  });
-};
+  const [b2bInvoices, ewayInvoices] = await Promise.all([
+    prisma.invoice.findMany({
+      where: { shop, isB2B: true },
+      orderBy: { invoiceDate: "desc" },
+      take: 30,
+    }),
+    prisma.invoice.findMany({
+      where: { shop, ewayBillRequired: true },
+      orderBy: { invoiceDate: "desc" },
+      take: 30,
+    }),
+  ]);
 
-export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
-  const formData = await request.formData();
-  const invoiceId = formData.get("invoiceId") as string;
-
-  // In production, this pings the IRP API (via Sandbox/ClearTax/GSP)
-  // We simulate generating a compliant 64-char IRN hash and Ack No
-  const mockIrn = "b4f2c9" + Array.from({ length: 58 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
-  const mockAck = String(Math.floor(100000000000000 + Math.random() * 900000000000000));
-
-  await prisma.invoice.update({
-    where: { id: invoiceId },
-    data: {
-      irn: mockIrn,
-      irnStatus: "GENERATED",
-      irnAckNo: mockAck,
-    },
+  const toRow = (inv: (typeof b2bInvoices)[number]) => ({
+    id: inv.id,
+    invoiceNumber: inv.invoiceNumber,
+    orderNumber: inv.shopifyOrderNumber,
+    date: new Date(inv.invoiceDate).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
+    buyerGstin: inv.buyerGstin,
+    amount: `₹${inv.grandTotal.toFixed(2)}`,
   });
 
-  return json({ success: true, message: `e-Invoice generated! IRN: ${mockIrn.substring(0, 16)}...` });
+  return json({ b2bInvoices: b2bInvoices.map(toRow), ewayInvoices: ewayInvoices.map(toRow) });
 };
 
 export default function EInvoicingPage() {
-  const { einvoiceEnabled, b2bInvoices } = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
-  const submit = useSubmit();
+  const { b2bInvoices, ewayInvoices } = useLoaderData<typeof loader>();
   const [selectedTab, setSelectedTab] = useState(0);
 
   const tabs = [
     { id: "e-invoices", content: "e-Invoices (IRN)" },
-    { id: "e-way-bills", content: "e-Way Bills (> ₹50,000)" },
+    { id: "e-way-bills", content: "e-Way Bills" },
   ];
 
-  const handleGenerateIrn = (id: string) => {
-    const fd = new FormData();
-    fd.append("invoiceId", id);
-    submit(fd, { method: "post" });
-  };
-
-  const rows = b2bInvoices.map((inv) => [
+  const rows = (selectedTab === 0 ? b2bInvoices : ewayInvoices).map((inv) => [
     <Text as="span" fontWeight="bold">{inv.invoiceNumber}</Text>,
     `#${inv.orderNumber}`,
     inv.date,
     <Badge tone="info">{inv.buyerGstin || "N/A"}</Badge>,
     inv.amount,
-    inv.irnStatus === "GENERATED" ? (
-      <Badge tone="success">IRN Generated</Badge>
-    ) : (
-      <Badge tone="warning">Pending IRN</Badge>
-    ),
-    inv.irnStatus === "GENERATED" ? (
-      <Text as="span" variant="bodyXs" tone="subdued">{inv.irn?.substring(0, 12)}...</Text>
-    ) : (
-      <Button size="micro" variant="primary" onClick={() => handleGenerateIrn(inv.id)}>
-        Generate IRN
-      </Button>
-    ),
+    <Badge tone="warning">{selectedTab === 0 ? "File on IRP portal" : "File on e-Way Bill portal"}</Badge>,
   ]);
 
   return (
     <Page
       title="e-Invoicing (IRN) & e-Way Bills"
-      subtitle="Government IRP portal compliance for businesses with turnover > ₹5 Crores"
+      subtitle="Invoices that may need filing on the government portals"
     >
       <BlockStack gap="500">
-        {actionData?.success && (
-          <Banner tone="success" onDismiss={() => {}}>
-            <p>{actionData.message}</p>
-          </Banner>
-        )}
+        <Banner tone="warning" title="Not connected to the government portals">
+          <p>
+            This app cannot generate IRNs or e-Way Bills yet. Use this list to see which invoices
+            may need them, then generate them on the official IRP and e-Way Bill portals.
+          </p>
+        </Banner>
 
         <Banner tone="info">
           <p>
@@ -125,8 +92,8 @@ export default function EInvoicingPage() {
         <Card padding="0">
           <Tabs tabs={tabs} selected={selectedTab} onSelect={setSelectedTab}>
             <DataTable
-              columnContentTypes={["text", "text", "text", "text", "numeric", "text", "text"]}
-              headings={["Invoice No.", "Order", "Date", "Buyer GSTIN", "Amount", "Status", "IRN / Action"]}
+              columnContentTypes={["text", "text", "text", "text", "numeric", "text"]}
+              headings={["Invoice No.", "Order", "Date", "Buyer GSTIN", "Amount", "Next Step"]}
               rows={rows}
             />
           </Tabs>

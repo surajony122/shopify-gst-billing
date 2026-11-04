@@ -128,7 +128,7 @@ export default function SettingsPage() {
   const submit = useSubmit();
   const navigation = useNavigation();
 
-  const [form, setForm] = useState(setting);
+  const [form, setForm] = useState<any>(setting);
 
   const handleGstinChange = (value: string) => {
     const clean = value.toUpperCase();
@@ -251,11 +251,6 @@ export default function SettingsPage() {
               checked={Boolean(form.roundOffSection170)}
               onChange={(checked) => setForm({ ...form, roundOffSection170: checked })}
             />
-            <Checkbox
-              label="Automatically Email PDF Invoice to Customer upon Fulfillment"
-              checked={Boolean(form.autoEmailInvoice)}
-              onChange={(checked) => setForm({ ...form, autoEmailInvoice: checked })}
-            />
           </BlockStack>
         </Card>
 
@@ -332,7 +327,7 @@ export default function SettingsPage() {
             </InlineGrid>
 
             <Checkbox
-              label="Strict B2B Check: Verify that Buyer State matches GSTIN State Code prefix (prevents invalid Input Tax Credit rejections)"
+              label="Strict B2B Check: Treat orders with an invalid GSTIN as B2C instead of issuing a B2B invoice"
               checked={Boolean(form.b2bStrictValidation)}
               onChange={(checked) => setForm({ ...form, b2bStrictValidation: checked })}
             />

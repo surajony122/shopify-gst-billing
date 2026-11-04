@@ -168,10 +168,9 @@ export default function HsnCatalogPage() {
 
   const taxSlabOptions = [
     { label: "0% (Exempt / Nil-Rated Goods)", value: "0" },
-    { label: "5% (Apparel/Footwear < ₹1000, Food Items)", value: "5" },
-    { label: "12% (Processed Foods, Apparel > ₹1000)", value: "12" },
+    { label: "5% (Apparel/Footwear ≤ ₹2,500, Food Items)", value: "5" },
     { label: "18% (Standard Goods, Services & Electronics)", value: "18" },
-    { label: "28% (Luxury & Automotive)", value: "28" },
+    { label: "40% (Luxury & Sin Goods)", value: "40" },
   ];
 
   const tabs = [
@@ -201,7 +200,7 @@ export default function HsnCatalogPage() {
   const collectionRows = collections.map((col) => [
     <Text as="span" fontWeight="bold">{col.title}</Text>,
     <Badge tone="info">{col.hsnCode}</Badge>,
-    <Badge tone="success">{col.gstRate}% GST</Badge>,
+    <Badge tone="success">{`${col.gstRate}% GST`}</Badge>,
     <Button
       size="micro"
       variant="primary"
@@ -251,7 +250,7 @@ export default function HsnCatalogPage() {
       <BlockStack gap="500">
         {actionData?.success && (
           <Banner tone="success" onDismiss={() => {}}>
-            <p>{actionData.message}</p>
+            <p>{(actionData as any).message}</p>
           </Banner>
         )}
 

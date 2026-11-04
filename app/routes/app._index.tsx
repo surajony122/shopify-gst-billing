@@ -80,7 +80,7 @@ export default function DashboardPage() {
     `#${inv.orderNumber}`,
     inv.date,
     inv.customer,
-    inv.isB2B ? <Badge tone="info">B2B (GSTIN)</Badge> : <Badge tone="subdued">B2C</Badge>,
+    inv.isB2B ? <Badge tone="info">B2B (GSTIN)</Badge> : <Badge>B2C</Badge>,
     inv.amount,
     <Button size="micro" onClick={() => navigate(`/app/invoices/${inv.id}`)}>View</Button>,
   ]);

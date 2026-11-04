@@ -238,7 +238,7 @@ export default function TemplateEditorPage() {
     pincode: setting.pincode || "400001",
     phone: setting.phone || "+91 98765 43210",
     email: setting.email || "billing@superstore.in",
-    taxScheme: setting.taxScheme || "regular",
+    taxScheme: (setting as any).taxScheme || "regular",
     brandColor: form.brandColor,
     invoiceTitle: form.invoiceTitle,
     invoiceSubtitle: form.invoiceSubtitle,
@@ -419,7 +419,7 @@ export default function TemplateEditorPage() {
                                 {isDefault && <Badge tone="success">Active Default</Badge>}
                               </InlineStack>
                             </InlineStack>
-                            <Text as="p" variant="bodySm" tone="subdued" style={{ marginTop: "4px" }}>
+                            <Text as="p" variant="bodySm" tone="subdued">
                               {t.desc}
                             </Text>
                           </div>

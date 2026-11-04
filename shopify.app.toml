@@ -1,17 +1,20 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = ""
-name = "GST Invoicing & Compliance India"
+client_id = "6caab6fa2a78cfa57f8047383296d1b2"
+name = "GST Invoicing & Compliance Ind"
 handle = "gst-invoicing-compliance-india"
 application_url = "https://shopify-gst-billing.onrender.com"
 embedded = true
 
 [build]
-automatically_update_urls_on_dev = true
-dev_store_url = ""
+# Keep the Render URLs when running `shopify app dev`
+automatically_update_urls_on_dev = false
 
 [access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "read_products,write_products,read_orders,write_orders,read_fulfillments,read_locations,read_customer_events"
+optional_scopes = [ ]
+use_legacy_install_flow = false
 
 [auth]
 redirect_urls = [
@@ -21,20 +24,24 @@ redirect_urls = [
 ]
 
 [webhooks]
-api_version = "2024-10"
+api_version = "2026-10"
 
   [[webhooks.subscriptions]]
-  topics = [ "orders/create" ]
   uri = "/webhooks/orders/create"
+  topics = [ "orders/create" ]
 
   [[webhooks.subscriptions]]
-  topics = [ "orders/fulfilled" ]
   uri = "/webhooks/orders/fulfilled"
+  topics = [ "orders/fulfilled" ]
 
   [[webhooks.subscriptions]]
-  topics = [ "refunds/create" ]
   uri = "/webhooks/refunds/create"
+  topics = [ "refunds/create" ]
 
   [[webhooks.subscriptions]]
-  topics = [ "app/uninstalled" ]
   uri = "/webhooks/app/uninstalled"
+  topics = [ "app/uninstalled" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/compliance"
+  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]

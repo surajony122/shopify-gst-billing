@@ -1,15 +1,18 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
+import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { cleanStateName } from "../services/gst-engine";
 import { generateGSTInvoicePDF } from "../services/pdf-generator.server";
 
 export const loader = async ({ params, request }: LoaderFunctionArgs) => {
+  const { session } = await authenticate.admin(request);
   const invoiceId = params.id;
   if (!invoiceId) {
     return new Response("Invoice ID required", { status: 400 });
   }
 
-  const invoice = await prisma.invoice.findUnique({
-    where: { id: invoiceId },
+  const invoice = await prisma.invoice.findFirst({
+    where: { id: invoiceId, shop: session.shop },
     include: { lineItems: true },
   });
 
@@ -25,7 +28,7 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
     const pdfBuffer = await generateGSTInvoicePDF({
       invoiceNumber: invoice.invoiceNumber,
       orderNumber: invoice.shopifyOrderNumber,
-      invoiceDate: new Date(invoice.invoiceDate).toLocaleDateString("en-IN"),
+      invoiceDate: new Date(invoice.invoiceDate).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
       financialYear: invoice.financialYear,
       seller: {
         legalName: setting?.legalName || "Seller Trade Name",
@@ -45,10 +48,10 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
         tradeName: invoice.buyerTradeName || "",
         gstin: invoice.buyerGstin || undefined,
         address: (invoice.shippingAddress as any)?.address1 || "Customer Address",
-        state: invoice.placeOfSupplyState,
+        state: cleanStateName(invoice.placeOfSupplyState),
         stateCode: invoice.placeOfSupplyCode,
       },
-      placeOfSupply: `${invoice.placeOfSupplyCode}-${invoice.placeOfSupplyState}`,
+      placeOfSupply: `${invoice.placeOfSupplyCode}-${cleanStateName(invoice.placeOfSupplyState)}`,
       isInterState: invoice.isInterState,
       lineItems: invoice.lineItems.map((item) => ({
         title: item.title,
@@ -90,14 +93,13 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
       },
     });
 
-    return new Response(pdfBuffer, {
+    return new Response(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `inline; filename="${invoice.invoiceNumber.replace(/\//g, "-")}.pdf"`,
         "Content-Security-Policy": "frame-ancestors https://admin.shopify.com https://*.myshopify.com 'self'",
-        "Access-Control-Allow-Origin": "*",
-        "Cache-Control": "public, max-age=3600",
+        "Cache-Control": "private, no-store",
       },
     });
   } catch (error: any) {

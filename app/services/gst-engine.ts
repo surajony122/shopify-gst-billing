@@ -106,15 +106,20 @@ export function getStateCodeFromGSTIN(gstin: string): string | null {
 /**
  * Find State Code from State Name (case-insensitive fuzzy match)
  */
-export function getStateCodeFromName(stateName: string): string {
-  const normalized = stateName.toLowerCase().replace(/[^a-z]/g, "");
+export function getStateCodeFromName(stateName: string, fallbackCode: string = "27"): string {
+  const normalized = stateName.toLowerCase().replace(/&/g, "and").replace(/[^a-z]/g, "");
   for (const [code, info] of Object.entries(GST_STATE_CODES)) {
     const cleanInfo = info.name.toLowerCase().replace(/[^a-z]/g, "");
     if (cleanInfo === normalized || cleanInfo.includes(normalized) || normalized.includes(cleanInfo)) {
       return code;
     }
   }
-  return "27"; // Default fallback (e.g. Maharashtra)
+  return fallbackCode;
+}
+
+/** Older invoices stored the state as "27-Maharashtra"; returns just the name. */
+export function cleanStateName(state: string): string {
+  return state.replace(/^\d{2}-/, "");
 }
 
 /**
@@ -197,8 +202,9 @@ export function calculateOrderGST(params: {
   buyerStateCode: string;
   lineItems: LineItemTaxInput[];
   roundOff?: boolean;
+  pricesIncludeTax?: boolean; // Shopify's taxes_included: prices already contain GST
 }): TaxCalculationResult {
-  const { sellerStateCode, buyerStateCode, lineItems, roundOff = true } = params;
+  const { sellerStateCode, buyerStateCode, lineItems, roundOff = true, pricesIncludeTax = false } = params;
 
   // Rule: If Seller State != Buyer State -> Interstate (IGST)
   // Rule: If Seller State == Buyer State -> Intrastate (CGST + SGST)
@@ -214,7 +220,13 @@ export function calculateOrderGST(params: {
     const qty = Math.max(1, item.quantity);
     const grossPrice = item.unitPrice * qty;
     const discount = item.discountAmount || 0;
-    const taxableValue = Math.max(0, grossPrice - discount);
+    const netPrice = Math.max(0, grossPrice - discount);
+    const taxDivisor = pricesIncludeTax ? 1 + item.gstRate / 100 : 1;
+    const taxableValue = Number((netPrice / taxDivisor).toFixed(2));
+    // Inclusive prices: tax is the remainder, so the line adds back to exactly what was charged.
+    const totalTax = pricesIncludeTax
+      ? Number((netPrice - taxableValue).toFixed(2))
+      : Number(((taxableValue * item.gstRate) / 100).toFixed(2));
 
     let cgstRate = 0;
     let cgstAmount = 0;
@@ -225,12 +237,12 @@ export function calculateOrderGST(params: {
 
     if (isInterState) {
       igstRate = item.gstRate;
-      igstAmount = Number(((taxableValue * igstRate) / 100).toFixed(2));
+      igstAmount = totalTax;
     } else {
       cgstRate = item.gstRate / 2;
       sgstRate = item.gstRate / 2;
-      cgstAmount = Number(((taxableValue * cgstRate) / 100).toFixed(2));
-      sgstAmount = Number(((taxableValue * sgstRate) / 100).toFixed(2));
+      cgstAmount = Number((totalTax / 2).toFixed(2));
+      sgstAmount = Number((totalTax - cgstAmount).toFixed(2));
     }
 
     const itemTotal = Number((taxableValue + cgstAmount + sgstAmount + igstAmount).toFixed(2));
@@ -246,9 +258,9 @@ export function calculateOrderGST(params: {
       sku: item.sku,
       hsnCode: item.hsnCode || "999999",
       quantity: qty,
-      unitPrice: item.unitPrice,
-      discountAmount: discount,
-      taxableValue: Number(taxableValue.toFixed(2)),
+      unitPrice: Number((item.unitPrice / taxDivisor).toFixed(2)),
+      discountAmount: Number((discount / taxDivisor).toFixed(2)),
+      taxableValue,
       gstRate: item.gstRate,
       cgstRate,
       cgstAmount,
@@ -280,7 +292,7 @@ export function calculateOrderGST(params: {
     isInterState,
     sellerStateCode,
     buyerStateCode,
-    placeOfSupplyState: `${buyerStateCode}-${buyerState}`,
+    placeOfSupplyState: buyerState,
     lineItems: processedItems,
     subtotalTaxable,
     cgstTotal,
@@ -390,7 +402,8 @@ export function evaluateInvoiceRules(
 }
 
 /**
- * Resolves GST Rate for special HSN categories (e.g. Apparel & Footwear ₹1,000 price point threshold)
+ * Resolves GST Rate for special HSN categories (Apparel & Footwear ₹2,500 per piece threshold,
+ * in force since 22 Sep 2025 under Notification 9/2025-CT(Rate))
  */
 export function resolveItemGstRate(
   hsnCode: string = "999999",
@@ -402,15 +415,15 @@ export function resolveItemGstRate(
 
   // Indian statutory rule: HSN chapters 61, 62 (Apparel/Garments) and 64 (Footwear)
   if (tierRuleEnabled && (cleanHsn.startsWith("61") || cleanHsn.startsWith("62") || cleanHsn.startsWith("64"))) {
-    if (unitPrice <= 1000) {
+    if (unitPrice <= 2500) {
       return {
         rate: 5.0,
-        ruleApplied: `HSN ${cleanHsn} Tier: Unit price ≤ ₹1,000 applies 5% GST`,
+        ruleApplied: `HSN ${cleanHsn} Tier: Unit price ≤ ₹2,500 applies 5% GST`,
       };
     } else {
       return {
-        rate: 12.0,
-        ruleApplied: `HSN ${cleanHsn} Tier: Unit price > ₹1,000 applies 12% GST`,
+        rate: 18.0,
+        ruleApplied: `HSN ${cleanHsn} Tier: Unit price > ₹2,500 applies 18% GST`,
       };
     }
   }
@@ -423,12 +436,13 @@ export function resolveItemGstRate(
  */
 export function resolveShippingGstRate(
   mode: string = "fixed_18",
-  itemRates: number[] = [18]
+  itemRates: number[] = [18],
+  fixedRate: number = 18
 ): number {
   if (mode === "exempt_0") return 0;
   if (mode === "composite_highest") {
     if (itemRates.length === 0) return 18;
     return Math.max(...itemRates);
   }
-  return 18; // Default fixed 18%
+  return fixedRate;
 }

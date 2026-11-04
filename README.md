@@ -21,12 +21,11 @@ A complete, production-grade **Goods and Services Tax (GST)** Invoicing, e-Invoi
    * Product and variant-level HSN mapping.
    * Bulk default application and tax slab controls (0%, 5%, 12%, 18%, 28%).
 5. **e-Invoicing (IRN) & e-Way Bills:**
-   * Ready for merchants with turnover > ₹5 Crores.
-   * IRN hash and dynamic signed QR code generation.
+   * Lists invoices that may need an IRN or e-Way Bill.
+   * Not connected to the government portals: generate these on the official IRP and e-Way Bill sites.
 6. **GSTR-1 CA-Ready Reporting:**
-   * 1-Click Multi-Sheet Excel (`b2b`, `b2cl`, `b2cs`, `hsn`, `docs`).
-   * 1-Click GSTR-1 JSON for direct upload to the official GST offline tool.
-   * Tally Prime XML export.
+   * 1-Click Multi-Sheet Excel (`b2b`, `b2cl`, `b2cs`, `cdnr`, `cdnur`, `hsn`, `docs`).
+   * 1-Click GSTR-1 JSON. Check it in the official GST offline tool before filing.
 
 ---
 
@@ -47,7 +46,7 @@ A complete, production-grade **Goods and Services Tax (GST)** Invoicing, e-Invoi
 │   │   ├── webhooks.orders.create.ts    # Webhook for automatic invoice creation
 │   │   └── webhooks.refunds.create.ts   # Webhook for automatic credit note creation
 │   ├── services/
-│   │   ├── gst-engine.server.ts         # Indian GST calculation & State POS logic
+│   │   ├── gst-engine.ts                # Indian GST calculation & State POS logic
 │   │   ├── pdf-generator.server.ts      # Rule 46 PDF generator (jspdf + autotable)
 │   │   └── gstr1-exporter.server.ts     # Multi-sheet Excel generator (xlsx)
 │   ├── db.server.ts                     # Prisma Client singleton

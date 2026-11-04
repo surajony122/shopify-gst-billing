@@ -102,7 +102,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     ewayBillRequired: false,
   });
 
-  return new Response(pdfBuffer, {
+  return new Response(new Uint8Array(pdfBuffer), {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",

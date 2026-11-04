@@ -23,6 +23,7 @@ import { useState } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { evaluateInvoiceRules, resolveItemGstRate, resolveShippingGstRate } from "../services/gst-engine";
+import { openSecureFile } from "../utils/secure-file";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -117,7 +118,7 @@ export default function InvoiceRulesPage() {
   const navigation = useNavigation();
 
   const [selectedTab, setSelectedTab] = useState(0);
-  const [form, setForm] = useState(setting);
+  const [form, setForm] = useState<any>(setting);
 
   // Simulator State
   const [simAmount, setSimAmount] = useState("15000");
@@ -322,8 +323,9 @@ export default function InvoiceRulesPage() {
                               <Button
                                 size="micro"
                                 variant="primary"
-                                url={`/api/invoices/preview?template=${tmpl.id}`}
-                                target="_blank"
+                                onClick={() => {
+                                  openSecureFile(`/api/invoices/preview?template=${tmpl.id}`).catch((error) => window.alert(error.message));
+                                }}
                               >
                                 Preview Live PDF
                               </Button>
@@ -441,7 +443,7 @@ export default function InvoiceRulesPage() {
                   <Card>
                     <BlockStack gap="300">
                       <InlineStack align="space-between">
-                        <Text as="h3" variant="headingSm">Apparel & Footwear ₹1,000 Tier Rule</Text>
+                        <Text as="h3" variant="headingSm">Apparel & Footwear ₹2,500 Tier Rule</Text>
                         <Badge tone="info">Indian Statutory Rule</Badge>
                       </InlineStack>
                       <Text as="p" tone="subdued">
@@ -449,12 +451,12 @@ export default function InvoiceRulesPage() {
                       </Text>
                       <Box padding="200" background="bg-surface-secondary" borderRadius="200">
                         <Text as="p" variant="bodySm">
-                          • Item Unit Price <strong>≤ ₹1,000</strong>: Automatically taxed at <strong>5% GST</strong><br />
-                          • Item Unit Price <strong>&gt; ₹1,000</strong>: Automatically taxed at <strong>12% GST</strong>
+                          • Item Unit Price <strong>≤ ₹2,500</strong>: Automatically taxed at <strong>5% GST</strong><br />
+                          • Item Unit Price <strong>&gt; ₹2,500</strong>: Automatically taxed at <strong>18% GST</strong>
                         </Text>
                       </Box>
                       <Checkbox
-                        label="Automatically enforce ₹1,000 price threshold for Apparel & Footwear HSNs (61, 62, 64)"
+                        label="Automatically enforce ₹2,500 price threshold for Apparel & Footwear HSNs (61, 62, 64)"
                         checked={Boolean(form.apparelFootwearTierRule)}
                         onChange={(checked) => setForm({ ...form, apparelFootwearTierRule: checked })}
                       />

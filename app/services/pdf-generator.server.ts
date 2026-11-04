@@ -69,6 +69,8 @@ export interface InvoicePDFData {
   };
   terms?: string;
   template?: string; // "standard_b2b" | "modern_d2c" | "minimalist" | "thermal_pos"
+  brandColor?: string;
+  taxScheme?: string;
   ewayBillRequired?: boolean;
   customization?: {
     invoiceTitle?: string;

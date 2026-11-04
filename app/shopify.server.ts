@@ -7,10 +7,16 @@ import {
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing required environment variable: ${name}`);
+  return value;
+}
+
 const shopify = shopifyApp({
-  apiKey: process.env.SHOPIFY_API_KEY || "mock_key",
-  apiSecretKey: process.env.SHOPIFY_API_SECRET || "mock_secret",
-  apiVersion: ApiVersion.October24,
+  apiKey: requireEnv("SHOPIFY_API_KEY"),
+  apiSecretKey: requireEnv("SHOPIFY_API_SECRET"),
+  apiVersion: ApiVersion.October25,
   scopes: process.env.SCOPES?.split(",") || [
     "read_products",
     "write_products",
@@ -31,7 +37,7 @@ const shopify = shopifyApp({
 });
 
 export default shopify;
-export const apiVersion = ApiVersion.October24;
+export const apiVersion = ApiVersion.October25;
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
 export const authenticate = shopify.authenticate;
 export const unauthenticated = shopify.unauthenticated;

@@ -1,109 +1,63 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
+import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import { generateGSTR1Workbook, GSTR1InvoiceRecord } from "../services/gstr1-exporter.server";
+import {
+  buildGSTR1Json,
+  generateGSTR1Workbook,
+  getReturnPeriodRange,
+} from "../services/gstr1-exporter.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const { session } = await authenticate.admin(request);
+  const shop = session.shop;
+
   const url = new URL(request.url);
   const format = url.searchParams.get("format") || "xlsx";
-  const month = parseInt(url.searchParams.get("month") || "10", 10);
-  const year = parseInt(url.searchParams.get("year") || "2026", 10);
+  const month = parseInt(url.searchParams.get("month") || "", 10);
+  const year = parseInt(url.searchParams.get("year") || "", 10);
 
-  const startDate = new Date(year, month - 1, 1);
-  const endDate = new Date(year, month, 0, 23, 59, 59);
+  if (!["xlsx", "json"].includes(format)) {
+    return new Response("Unsupported export format", { status: 400 });
+  }
+  if (!(month >= 1 && month <= 12) || !(year >= 2017 && year <= 2100)) {
+    return new Response("Choose a valid return period", { status: 400 });
+  }
 
-  const invoices = await prisma.invoice.findMany({
-    where: {
-      invoiceDate: {
-        gte: startDate,
-        lte: endDate,
-      },
-    },
-    include: { lineItems: true },
-  });
+  const { start, end } = getReturnPeriodRange(month, year);
 
-  const records: GSTR1InvoiceRecord[] = [];
-  invoices.forEach((inv) => {
-    inv.lineItems.forEach((item) => {
-      records.push({
-        invoiceNumber: inv.invoiceNumber,
-        invoiceDate: new Date(inv.invoiceDate).toLocaleDateString("en-IN"),
-        orderNumber: inv.shopifyOrderNumber,
-        isB2B: inv.isB2B,
-        buyerGstin: inv.buyerGstin || undefined,
-        buyerTradeName: inv.buyerTradeName || undefined,
-        placeOfSupplyCode: inv.placeOfSupplyCode,
-        placeOfSupplyState: inv.placeOfSupplyState,
-        isInterState: inv.isInterState,
-        taxableValue: item.taxableValue,
-        gstRate: item.gstRate,
-        cgstAmount: item.cgstAmount,
-        sgstAmount: item.sgstAmount,
-        igstAmount: item.igstAmount,
-        cessAmount: 0,
-        totalInvoiceValue: inv.grandTotal,
-        hsnCode: item.hsnCode,
-        quantity: item.quantity,
-      });
-    });
-  });
+  const [invoices, creditNotes, setting] = await Promise.all([
+    prisma.invoice.findMany({
+      where: { shop, invoiceDate: { gte: start, lt: end } },
+      include: { lineItems: true },
+    }),
+    prisma.creditNote.findMany({
+      where: { shop, date: { gte: start, lt: end } },
+      include: { invoice: { include: { lineItems: true } } },
+    }),
+    prisma.storeSetting.findUnique({ where: { shop } }),
+  ]);
 
   if (format === "json") {
-    // Official GST Offline Portal Schema
-    const gstr1Json = {
-      gstin: "27AABCU9603R1ZM",
-      fp: `${String(month).padStart(2, "0")}${year}`,
-      gt: records.reduce((s, r) => s + r.totalInvoiceValue, 0),
-      cur_gt: records.reduce((s, r) => s + r.totalInvoiceValue, 0),
-      b2b: records.filter((r) => r.isB2B).map((r) => ({
-        ctin: r.buyerGstin,
-        inv: [{
-          inum: r.invoiceNumber,
-          idt: r.invoiceDate,
-          val: r.totalInvoiceValue,
-          pos: r.placeOfSupplyCode,
-          rchrg: "N",
-          inv_typ: "R",
-          itms: [{
-            num: 1,
-            itm_det: {
-              rt: r.gstRate,
-              txval: r.taxableValue,
-              iamt: r.igstAmount,
-              camt: r.cgstAmount,
-              samt: r.sgstAmount,
-              csamt: 0,
-            },
-          }],
-        }],
-      })),
-      b2cs: records.filter((r) => !r.isB2B).map((r) => ({
-        sply_ty: r.isInterState ? "INTER" : "INTRA",
-        rt: r.gstRate,
-        typ: "OE",
-        pos: r.placeOfSupplyCode,
-        txval: r.taxableValue,
-        iamt: r.igstAmount,
-        camt: r.cgstAmount,
-        samt: r.sgstAmount,
-        csamt: 0,
-      })),
-    };
+    if (!setting?.gstin) {
+      return new Response("Add your GSTIN in GST Settings before exporting the JSON file", { status: 400 });
+    }
 
-    return new Response(JSON.stringify(gstr1Json, null, 2), {
+    return new Response(JSON.stringify(buildGSTR1Json(invoices, creditNotes, setting.gstin, month, year), null, 2), {
       status: 200,
       headers: {
         "Content-Type": "application/json",
         "Content-Disposition": `attachment; filename="GSTR1_${month}_${year}.json"`,
+        "Cache-Control": "private, no-store",
       },
     });
   }
 
-  const xlsxBuffer = generateGSTR1Workbook(records);
-  return new Response(xlsxBuffer, {
+  return new Response(new Uint8Array(generateGSTR1Workbook(invoices, creditNotes)), {
     status: 200,
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "Content-Disposition": `attachment; filename="GSTR1_${month}_${year}.xlsx"`,
+      "Cache-Control": "private, no-store",
     },
   });
 };

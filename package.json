@@ -5,6 +5,9 @@
   "description": "GST Invoicing, e-Invoicing (IRN), e-Way Bill & GSTR-1 Filing App for Shopify India",
   "sideEffects": false,
   "type": "module",
+  "workspaces": [
+    "extensions/*"
+  ],
   "scripts": {
     "build": "remix vite:build",
     "dev": "shopify app dev",
