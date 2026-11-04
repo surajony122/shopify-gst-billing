@@ -2,7 +2,7 @@ import type { LoaderFunctionArgs } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { cleanStateName } from "../services/gst-engine";
-import { generateGSTInvoicePDF } from "../services/pdf-generator.server";
+import { brandingFromSettings, generateGSTInvoicePDF } from "../services/pdf-generator.server";
 
 export const loader = async ({ params, request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -79,24 +79,14 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
       igstTotal: invoice.igstTotal,
       roundOff: invoice.roundOffAmount,
       grandTotal: invoice.grandTotal,
-      bankDetails: {
-        bankName: setting?.bankName || undefined,
-        accountNo: setting?.bankAccountNo || undefined,
-        ifsc: setting?.bankIfsc || undefined,
-        upiId: setting?.upiId || undefined,
-      },
-      terms: setting?.termsAndConditions || undefined,
+      ...(await brandingFromSettings(setting)),
       template: (new URL(request.url).searchParams.get("template") as string) || (invoice as any).templateUsed || setting?.invoiceTemplate || "standard_b2b",
-      brandColor: setting?.brandColor || "#212B36",
-      taxScheme: setting?.taxScheme || "regular",
       ewayBillRequired: (invoice as any).ewayBillRequired || false,
       customization: {
         invoiceTitle: `${invoice.status === "CANCELLED" ? "CANCELLED - " : ""}${baseTitle}`,
         invoiceSubtitle: isComposition
           ? "Composition taxable person, not eligible to collect tax on supplies"
           : setting?.invoiceSubtitle || undefined,
-        showBankDetails: setting?.showBankDetails ?? true,
-        showTerms: setting?.showTerms ?? true,
         signatureLabel: setting?.signatureLabel || undefined,
         footerNote: setting?.footerNote || undefined,
       },

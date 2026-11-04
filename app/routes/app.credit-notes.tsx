@@ -100,14 +100,15 @@ export default function CreditNotesPage() {
 
   return (
     <Page
-      title="Credit Notes (Section 34)"
-      subtitle="Automated adjustments for cancelled orders, returns, and refunds"
+      backAction={{ content: "GST Invoices", url: "/app/invoices" }}
+      title="Credit Notes"
+      subtitle="Created automatically when an invoiced order is refunded or cancelled"
     >
       <BlockStack gap="400">
         <Banner tone="info">
           <p>
-            Credit Notes are automatically generated when an order refund is processed in Shopify.
-            They adjust your monthly tax liability in GSTR-1 and GSTR-3B filings.
+            A credit note reduces the GST you owe when money goes back to a customer.
+            You don't need to do anything. They are included in your GSTR-1 file automatically.
           </p>
         </Banner>
 

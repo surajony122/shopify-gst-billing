@@ -351,7 +351,11 @@ export default function InvoicesListPage() {
           loading: isRegenerating,
         },
         {
-          content: "Export GSTR-1 for CA",
+          content: "Credit Notes",
+          url: "/app/credit-notes",
+        },
+        {
+          content: "GSTR-1 Report",
           url: "/app/reports",
         },
       ]}

@@ -446,3 +446,13 @@ export function resolveShippingGstRate(
   }
   return fixedRate;
 }
+
+/** Logos must come from Shopify's CDN, so the server never fetches arbitrary addresses. */
+export function isAllowedLogoUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "cdn.shopify.com";
+  } catch {
+    return false;
+  }
+}

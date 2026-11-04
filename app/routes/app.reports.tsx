@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { useLoaderData } from "@remix-run/react";
+import { useLoaderData, useSearchParams } from "@remix-run/react";
 import {
   Page,
   Card,
@@ -11,52 +11,63 @@ import {
   Button,
   Select,
   InlineStack,
-  Divider,
 } from "@shopify/polaris";
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { getReturnPeriodRange } from "../services/gstr1-exporter.server";
 import { downloadSecureFile } from "../utils/secure-file";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
+  const params = new URL(request.url).searchParams;
 
-  const totalInvoices = await prisma.invoice.count({ where: { shop, status: "ACTIVE" } });
-  const b2bCount = await prisma.invoice.count({ where: { shop, isB2B: true, status: "ACTIVE" } });
-  const b2cCount = await prisma.invoice.count({ where: { shop, isB2B: false, status: "ACTIVE" } });
+  // Months follow Indian time, the same as the return file.
+  const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const month = parseInt(params.get("month") || "", 10) || today.getUTCMonth() + 1;
+  const year = parseInt(params.get("year") || "", 10) || today.getUTCFullYear();
+  const { start, end } = getReturnPeriodRange(month, year);
+  const period = { shop, status: "ACTIVE", invoiceDate: { gte: start, lt: end } };
 
-  const agg = await prisma.invoice.aggregate({
-    where: { shop, status: "ACTIVE" },
-    _sum: {
-      subtotalTaxable: true,
-      cgstTotal: true,
-      sgstTotal: true,
-      igstTotal: true,
-      grandTotal: true,
-    },
-  });
+  const [setting, b2bCount, b2cCount, agg, creditNotes] = await Promise.all([
+    prisma.storeSetting.findUnique({ where: { shop } }),
+    prisma.invoice.count({ where: { ...period, isB2B: true } }),
+    prisma.invoice.count({ where: { ...period, isB2B: false } }),
+    prisma.invoice.aggregate({
+      where: period,
+      _sum: { subtotalTaxable: true, cgstTotal: true, sgstTotal: true, igstTotal: true },
+    }),
+    prisma.creditNote.aggregate({
+      where: { shop, date: { gte: start, lt: end } },
+      _count: true,
+      _sum: { taxableAdjusted: true },
+    }),
+  ]);
 
   return json({
-    totalInvoices,
+    month,
+    year,
+    currentYear: today.getUTCFullYear(),
+    isComposition: setting?.taxScheme === "composition",
+    hasGstin: Boolean(setting?.gstin),
     b2bCount,
     b2cCount,
     taxableSales: agg._sum.subtotalTaxable || 0,
-    cgstTotal: agg._sum.cgstTotal || 0,
-    sgstTotal: agg._sum.sgstTotal || 0,
-    igstTotal: agg._sum.igstTotal || 0,
     totalTax: (agg._sum.cgstTotal || 0) + (agg._sum.sgstTotal || 0) + (agg._sum.igstTotal || 0),
-    grandTotal: agg._sum.grandTotal || 0,
+    creditNoteCount: creditNotes._count,
+    creditNoteTaxable: creditNotes._sum.taxableAdjusted || 0,
   });
 };
 
 export default function ReportsPage() {
   const data = useLoaderData<typeof loader>();
-  const today = new Date();
-  const currentYear = today.getFullYear();
-  const [selectedMonth, setSelectedMonth] = useState(String(today.getMonth() + 1).padStart(2, "0"));
-  const [selectedYear, setSelectedYear] = useState(String(currentYear));
+  const [, setSearchParams] = useSearchParams();
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const selectedMonth = String(data.month).padStart(2, "0");
+  const selectedYear = String(data.year);
+
+  const changePeriod = (month: string, year: string) => setSearchParams({ month, year });
 
   const handleDownload = (format: "xlsx" | "json") => {
     setDownloadError(null);
@@ -81,89 +92,89 @@ export default function ReportsPage() {
     { label: "December", value: "12" },
   ];
 
-  const yearOptions = [currentYear, currentYear - 1, currentYear - 2].map((year) => ({
+  const yearOptions = [data.currentYear, data.currentYear - 1, data.currentYear - 2].map((year) => ({
     label: String(year),
     value: String(year),
   }));
 
   return (
-    <Page
-      title="GST Filing Reports (GSTR-1 & GSTR-3B)"
-      subtitle="Export CA-ready spreadsheets and JSON files formatted for the official GST portal"
-    >
-      <BlockStack gap="500">
+    <Page title="GSTR-1 Report" subtitle="Your monthly sales return, ready for your CA or the GST portal">
+      <BlockStack gap="400">
+        <Banner tone="info" title="What is GSTR-1?">
+          <p>
+            GSTR-1 is the return where you report your sales to the GST department, usually every month.
+            Your buyers' input tax credit depends on it. The app prepares the file, and you or your CA check and file it.
+          </p>
+        </Banner>
+
+        {data.isComposition && (
+          <Banner tone="warning">
+            <p>Composition dealers file CMP-08 and GSTR-4 instead of GSTR-1, so this export is turned off.</p>
+          </Banner>
+        )}
+
+        {!data.hasGstin && !data.isComposition && (
+          <Banner tone="warning">
+            <p>Add your GSTIN in GST Settings before downloading the JSON file.</p>
+          </Banner>
+        )}
+
+        {downloadError && (
+          <Banner tone="critical" onDismiss={() => setDownloadError(null)}>
+            <p>{downloadError}</p>
+          </Banner>
+        )}
+
         <Card>
-          <BlockStack gap="400">
-            <Text as="h2" variant="headingSm">Select Return Period</Text>
-            <InlineStack gap="400">
-              <Select
-                label="Month"
-                options={monthOptions}
-                value={selectedMonth}
-                onChange={setSelectedMonth}
-              />
-              <Select
-                label="Year"
-                options={yearOptions}
-                value={selectedYear}
-                onChange={setSelectedYear}
-              />
-            </InlineStack>
-          </BlockStack>
+          <InlineStack gap="400">
+            <Select label="Month" options={monthOptions} value={selectedMonth} onChange={(month) => changePeriod(month, selectedYear)} />
+            <Select label="Year" options={yearOptions} value={selectedYear} onChange={(year) => changePeriod(selectedMonth, year)} />
+          </InlineStack>
         </Card>
 
-        {/* Aggregate Cards */}
         <InlineGrid columns={{ xs: 1, sm: 2, md: 4 }} gap="400">
           <Card>
             <BlockStack gap="200">
-              <Text as="h3" variant="headingSm" tone="subdued">B2B Supplies</Text>
-              <Text as="p" variant="headingLg" fontWeight="bold">{data.b2bCount} Orders</Text>
-              <Text as="p" variant="bodyXs" tone="subdued">With Buyer GSTIN</Text>
+              <Text as="h3" variant="headingSm" tone="subdued">Invoices</Text>
+              <Text as="p" variant="headingLg" fontWeight="bold">{data.b2bCount + data.b2cCount}</Text>
+              <Text as="p" variant="bodySm" tone="subdued">{`${data.b2bCount} B2B, ${data.b2cCount} B2C`}</Text>
             </BlockStack>
           </Card>
           <Card>
             <BlockStack gap="200">
-              <Text as="h3" variant="headingSm" tone="subdued">B2C Retail</Text>
-              <Text as="p" variant="headingLg" fontWeight="bold">{data.b2cCount} Orders</Text>
-              <Text as="p" variant="bodyXs" tone="subdued">Unregistered Consumers</Text>
+              <Text as="h3" variant="headingSm" tone="subdued">Taxable Sales</Text>
+              <Text as="p" variant="headingLg" fontWeight="bold">{`₹${data.taxableSales.toLocaleString("en-IN")}`}</Text>
             </BlockStack>
           </Card>
           <Card>
             <BlockStack gap="200">
-              <Text as="h3" variant="headingSm" tone="subdued">Total Taxable Value</Text>
-              <Text as="p" variant="headingLg" fontWeight="bold">₹{data.taxableSales.toLocaleString("en-IN")}</Text>
-              <Text as="p" variant="bodyXs" tone="success">Net Sales</Text>
+              <Text as="h3" variant="headingSm" tone="subdued">GST on Sales</Text>
+              <Text as="p" variant="headingLg" fontWeight="bold">{`₹${data.totalTax.toLocaleString("en-IN")}`}</Text>
             </BlockStack>
           </Card>
           <Card>
             <BlockStack gap="200">
-              <Text as="h3" variant="headingSm" tone="subdued">Total Output GST</Text>
-              <Text as="p" variant="headingLg" fontWeight="bold">₹{data.totalTax.toLocaleString("en-IN")}</Text>
-              <Text as="p" variant="bodyXs" tone="subdued">CGST+SGST+IGST</Text>
+              <Text as="h3" variant="headingSm" tone="subdued">Credit Notes</Text>
+              <Text as="p" variant="headingLg" fontWeight="bold">{data.creditNoteCount}</Text>
+              <Text as="p" variant="bodySm" tone="subdued">{`₹${data.creditNoteTaxable.toLocaleString("en-IN")} taxable reversed`}</Text>
             </BlockStack>
           </Card>
         </InlineGrid>
 
-        {/* Download Actions */}
         <Card>
-          <BlockStack gap="400">
-            <Text as="h2" variant="headingMd">Export Return Files</Text>
-            <Text as="p" tone="subdued">
-              Give these files to your Chartered Accountant (CA), or check the JSON in the official GST offline tool before filing:
-            </Text>
-            {downloadError && <Banner tone="critical"><p>{downloadError}</p></Banner>}
-            <Divider />
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">Download</Text>
             <InlineStack gap="300">
-              <Button
-                variant="primary"
-                onClick={() => handleDownload("xlsx")}
-              >
-                Download GSTR-1 Excel (Multi-Sheet)
+              <Button variant="primary" disabled={data.isComposition} onClick={() => handleDownload("xlsx")}>
+                Excel File (for your CA)
               </Button>
-              <Button onClick={() => handleDownload("json")}>
-                Download GSTR-1 JSON (GST Portal Schema)
+              <Button disabled={data.isComposition || !data.hasGstin} onClick={() => handleDownload("json")}>
+                JSON File (for the GST portal)
               </Button>
             </InlineStack>
+            <Text as="p" variant="bodySm" tone="subdued">
+              Check the JSON file in the official GST offline tool before uploading it.
+            </Text>
           </BlockStack>
         </Card>
       </BlockStack>

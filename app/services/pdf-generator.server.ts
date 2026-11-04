@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import QRCode from "qrcode";
+import { isAllowedLogoUrl } from "./gst-engine";
 
 function runAutoTable(doc: any, options: any) {
   if (typeof autoTable === "function") {
@@ -11,6 +12,88 @@ function runAutoTable(doc: any, options: any) {
     doc.autoTable(options);
   } else {
     throw new Error("jspdf-autotable could not be initialized");
+  }
+}
+
+/** Downloads the merchant's logo. An invoice must still print if this fails, so errors give no logo. */
+async function fetchLogoDataUrl(logoUrl?: string | null): Promise<string | undefined> {
+  if (!logoUrl || !isAllowedLogoUrl(logoUrl)) return undefined;
+  try {
+    const response = await fetch(logoUrl, { signal: AbortSignal.timeout(5000) });
+    const type = response.headers.get("content-type") || "";
+    if (!response.ok || !/image\/(png|jpe?g)/.test(type)) return undefined;
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > 2_000_000) return undefined;
+    return `data:${type};base64,${bytes.toString("base64")}`;
+  } catch (error) {
+    console.warn("Could not load invoice logo", error);
+    return undefined;
+  }
+}
+
+/** Turns saved Template Editor settings into PDF options, so each switch applies to every template. */
+export async function brandingFromSettings(setting: any) {
+  const showBank = setting?.showBankDetails ?? true;
+  const showUpi = setting?.showUpiQr ?? true;
+  return {
+    brandColor: setting?.brandColor || "#212B36",
+    taxScheme: setting?.taxScheme || "regular",
+    logoDataUrl: await fetchLogoDataUrl(setting?.logoUrl),
+    terms: (setting?.showTerms ?? true) ? setting?.termsAndConditions || undefined : undefined,
+    bankDetails: {
+      bankName: showBank ? setting?.bankName || undefined : undefined,
+      accountNo: showBank ? setting?.bankAccountNo || undefined : undefined,
+      ifsc: showBank ? setting?.bankIfsc || undefined : undefined,
+      upiId: showUpi ? setting?.upiId || undefined : undefined,
+    },
+  };
+}
+
+/** Draws the logo inside a box, keeping its proportions. Returns nothing if the image is unreadable. */
+function drawLogo(doc: any, data: InvoicePDFData, x: number, y: number, maxWidth: number, maxHeight: number, alignRight = false) {
+  if (!data.logoDataUrl) return;
+  try {
+    const format = data.logoDataUrl.includes("image/png") ? "PNG" : "JPEG";
+    const { width, height } = doc.getImageProperties(data.logoDataUrl);
+    const scale = Math.min(maxWidth / width, maxHeight / height);
+    const drawWidth = width * scale;
+    doc.addImage(data.logoDataUrl, format, alignRight ? x - drawWidth : x, y, drawWidth, height * scale);
+  } catch (error) {
+    console.warn("Could not draw invoice logo", error);
+  }
+}
+
+/** Prints terms and the footer note, moving to a new page if they do not fit. */
+function drawTermsAndFooter(doc: any, data: InvoicePDFData, startY: number, left: number) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  let y = startY;
+
+  if (data.terms) {
+    const lines = doc.splitTextToSize(data.terms, pageWidth - left * 2);
+    if (y + 5 + lines.length * 3.5 > pageHeight - 12) {
+      doc.addPage();
+      y = 16;
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(60, 60, 60);
+    doc.text("Terms & Conditions", left, y);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 100, 100);
+    doc.text(lines, left, y + 4);
+    y += 5 + lines.length * 3.5;
+  }
+
+  if (data.customization?.footerNote) {
+    if (y + 6 > pageHeight - 8) {
+      doc.addPage();
+      y = 16;
+    }
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(100, 100, 100);
+    doc.text(data.customization.footerNote, pageWidth / 2, y + 4, { align: "center" });
   }
 }
 
@@ -74,14 +157,13 @@ export interface InvoicePDFData {
   };
   terms?: string;
   template?: string; // "standard_b2b" | "modern_d2c" | "minimalist" | "thermal_pos"
+  logoDataUrl?: string;
   brandColor?: string;
   taxScheme?: string;
   ewayBillRequired?: boolean;
   customization?: {
     invoiceTitle?: string;
     invoiceSubtitle?: string;
-    showBankDetails?: boolean;
-    showTerms?: boolean;
     signatureLabel?: string;
     footerNote?: string;
   };
@@ -284,7 +366,7 @@ async function generateThermalPOSPDF(data: InvoicePDFData): Promise<Buffer> {
 
   doc.setFont("courier", "normal");
   doc.setFontSize(7);
-  doc.text("Thank You for Shopping With Us!", 40, finalY, { align: "center" });
+  doc.text(doc.splitTextToSize(data.customization?.footerNote || "Thank You for Shopping With Us!", 72), 40, finalY, { align: "center" });
 
   const arrayBuffer = doc.output("arraybuffer");
   return Buffer.from(arrayBuffer);
@@ -304,6 +386,11 @@ async function generateMinimalistPDF(data: InvoicePDFData): Promise<Buffer> {
   const isComposition = data.taxScheme === "composition";
   let y = 18;
 
+  if (data.logoDataUrl) {
+    drawLogo(doc, data, 16, 8, 40, 12);
+    y = 28;
+  }
+
   // Minimal Header: Brand Name (Left), Invoice Tag (Right)
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
@@ -313,7 +400,7 @@ async function generateMinimalistPDF(data: InvoicePDFData): Promise<Buffer> {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(14);
   doc.setTextColor(80, 80, 80);
-  doc.text(isComposition ? "BILL OF SUPPLY" : "INVOICE", pageWidth - 16, y, { align: "right" });
+  doc.text(data.customization?.invoiceTitle || (isComposition ? "BILL OF SUPPLY" : "INVOICE"), pageWidth - 16, y, { align: "right" });
   y += 5;
 
   doc.setFontSize(8);
@@ -512,6 +599,18 @@ async function generateMinimalistPDF(data: InvoicePDFData): Promise<Buffer> {
     doc.text(`Bank: ${data.bankDetails.bankName || "N/A"}  |  A/C: ${data.bankDetails.accountNo}  |  IFSC: ${data.bankDetails.ifsc || "N/A"}${data.bankDetails.upiId ? `  |  UPI: ${data.bankDetails.upiId}` : ""}`, 16, finalY);
   }
 
+  if (data.bankDetails?.upiId) {
+    try {
+      const qr = await QRCode.toDataURL(`upi://pay?pa=${data.bankDetails.upiId}&am=${data.grandTotal}&cu=INR`, { width: 80, margin: 1 });
+      doc.addImage(qr, "PNG", pageWidth - 34, finalY + 2, 18, 18);
+      finalY += 20;
+    } catch (e) {
+      // Ignore QR errors
+    }
+  }
+
+  drawTermsAndFooter(doc, data, finalY + 8, 16);
+
   const arrayBuffer = doc.output("arraybuffer");
   return Buffer.from(arrayBuffer);
 }
@@ -550,6 +649,7 @@ export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffe
     // Modern D2C Header Banner with brand color
     doc.setFillColor(brandRgb[0], brandRgb[1], brandRgb[2]);
     doc.rect(0, 0, pageWidth, 28, "F");
+    drawLogo(doc, data, pageWidth - 14, 7, 40, 14, true);
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(18);
@@ -564,6 +664,7 @@ export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffe
     y = 35;
   } else {
     // Standard Traditional B2B Format
+    drawLogo(doc, data, 14, 6, 36, 12);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
     doc.setTextColor(brandRgb[0], brandRgb[1], brandRgb[2]);
@@ -823,7 +924,9 @@ export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffe
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.5);
   doc.setTextColor(120, 120, 120);
-  doc.text("(Authorized Signatory)", pageWidth - 14, finalY + 16, { align: "right" });
+  doc.text(`(${data.customization?.signatureLabel || "Authorized Signatory"})`, pageWidth - 14, finalY + 16, { align: "right" });
+
+  drawTermsAndFooter(doc, data, finalY + 30, 14);
 
   const arrayBuffer = doc.output("arraybuffer");
   return Buffer.from(arrayBuffer);
