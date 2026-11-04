@@ -1,33 +1,76 @@
 import type { HeadersFunction, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { Link, Outlet, useLoaderData, useRouteError } from "@remix-run/react";
+import { NavLink, Outlet, useLoaderData, useRouteError } from "@remix-run/react";
 import { boundary } from "@shopify/shopify-app-remix/server";
 import { AppProvider } from "@shopify/shopify-app-remix/react";
-import { NavMenu } from "@shopify/app-bridge-react";
 import polarisTranslations from "@shopify/polaris/locales/en.json";
 import { authenticate } from "../shopify.server";
+import { AppIcon } from "../components/AppIcon";
+import { ICON_SPRITE } from "../components/icon-sprite";
+
+const NAV_GROUPS = [
+  { label: "Home", links: [{ to: "/app", label: "Overview", icon: "grid", end: true }] },
+  {
+    label: "Invoicing",
+    links: [
+      { to: "/app/invoices", label: "GST Invoices", icon: "receipt" },
+      { to: "/app/credit-notes", label: "Credit Notes", icon: "return" },
+      { to: "/app/e-invoicing", label: "e-Invoicing", icon: "file-text" },
+      { to: "/app/reports", label: "GSTR-1 Report", icon: "bar-chart" },
+    ],
+  },
+  {
+    label: "Store setup",
+    links: [
+      { to: "/app/templates", label: "Template Editor", icon: "edit" },
+      { to: "/app/rules", label: "Rules & Routing", icon: "sliders" },
+      { to: "/app/settings", label: "GST Settings", icon: "gear" },
+    ],
+  },
+  { label: "Support", links: [{ to: "/app/help", label: "Help & Docs", icon: "help-circle" }] },
+];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
-  return json({ apiKey: process.env.SHOPIFY_API_KEY || "" });
+  const { session } = await authenticate.admin(request);
+  return json({ apiKey: process.env.SHOPIFY_API_KEY || "", shop: session.shop });
 };
 
 export default function App() {
-  const { apiKey } = useLoaderData<typeof loader>();
+  const { apiKey, shop } = useLoaderData<typeof loader>();
 
   return (
     <AppProvider isEmbeddedApp apiKey={apiKey} i18n={polarisTranslations}>
-      <NavMenu>
-        <Link to="/app" rel="home">Dashboard</Link>
-        <Link to="/app/invoices">GST Invoices</Link>
-        <Link to="/app/templates">Template Editor</Link>
-        <Link to="/app/rules">Rules & Routing</Link>
-        <Link to="/app/e-invoicing">e-Invoicing (IRN)</Link>
-        <Link to="/app/reports">GSTR-1 Reports</Link>
-        <Link to="/app/settings">GST Settings</Link>
-        <Link to="/app/help">Help & Docs</Link>
-      </NavMenu>
-      <Outlet />
+      <svg style={{ display: "none" }} aria-hidden="true" dangerouslySetInnerHTML={{ __html: ICON_SPRITE }} />
+      <div className="ong-shell">
+        <nav className="ong-side" aria-label="App menu">
+          <div className="ong-brand">
+            <span className="ong-brand-mark"><AppIcon name="receipt" size={20} /></span>
+            <div>
+              <div className="ong-brand-name">GST Invoicing</div>
+              <div className="ong-brand-sub">{shop.replace(".myshopify.com", "")}</div>
+            </div>
+          </div>
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label}>
+              <div className="ong-group">{group.label}</div>
+              {group.links.map((link) => (
+                <NavLink
+                  key={link.to}
+                  to={link.to}
+                  end={"end" in link}
+                  className={({ isActive }) => `ong-link${isActive ? " active" : ""}`}
+                >
+                  <AppIcon name={link.icon} />
+                  {link.label}
+                </NavLink>
+              ))}
+            </div>
+          ))}
+        </nav>
+        <main className="ong-main">
+          <Outlet />
+        </main>
+      </div>
     </AppProvider>
   );
 }

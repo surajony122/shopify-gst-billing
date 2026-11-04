@@ -102,7 +102,6 @@ export default function CreditNotesPage() {
   return (
     <Page
       titleMetadata={<InfoTip content="A credit note reduces the GST you owe when money goes back to a customer. The app creates them automatically for refunds and some cancellations." />}
-      backAction={{ content: "GST Invoices", url: "/app/invoices" }}
       title="Credit Notes"
       subtitle="Created automatically when an invoiced order is refunded or cancelled"
     >

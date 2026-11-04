@@ -4,8 +4,9 @@ import { Link, useActionData, useLoaderData, useNavigate, useNavigation, useSear
 import {
   Page,
   Card,
-  IndexTable,
-  useIndexResourceState,
+  ActionList,
+  Checkbox,
+  Popover,
   Text,
   Badge,
   ButtonGroup,
@@ -32,6 +33,7 @@ import {
 } from "../services/invoice-builder.server";
 import { downloadSecureFile, openSecureFile } from "../utils/secure-file";
 import { InfoTip } from "../components/InfoTip";
+import { AppIcon } from "../components/AppIcon";
 
 const CUSTOMER_DATA_WARNING =
   "Shopify did not allow access to customer names and addresses, so orders without a GSTIN may show a generic name and your own state as the place of supply. Request protected customer data access in the Partner dashboard, then regenerate.";
@@ -119,6 +121,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       { shopifyOrderNumber: { contains: search, mode: "insensitive" } },
       { buyerGstin: { contains: search, mode: "insensitive" } },
       { buyerTradeName: { contains: search, mode: "insensitive" } },
+      { buyerEmail: { contains: search, mode: "insensitive" } },
     ];
   }
 
@@ -198,6 +201,33 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   });
 };
 
+function RowMenu({ onView, onDownload }: { onView: () => void; onDownload: () => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover
+      active={open}
+      onClose={() => setOpen(false)}
+      activator={
+        <Button
+          variant="tertiary"
+          accessibilityLabel="Invoice actions"
+          icon={<AppIcon name="more-horizontal" />}
+          onClick={() => setOpen((value) => !value)}
+        />
+      }
+    >
+      <ActionList
+        actionRole="menuitem"
+        onActionAnyItem={() => setOpen(false)}
+        items={[
+          { content: "View invoice", prefix: <AppIcon name="eye" size={16} />, onAction: onView },
+          { content: "Download PDF", prefix: <AppIcon name="download" size={16} />, onAction: onDownload },
+        ]}
+      />
+    </Popover>
+  );
+}
+
 export default function InvoicesListPage() {
   const { invoices, seller, totalCount, page, totalPages } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
@@ -212,13 +242,21 @@ export default function InvoicesListPage() {
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const isRegenerating = navigation.state === "submitting" && navigation.formData?.get("intent") === "regenerate_invoices";
 
-  const resourceName = {
-    singular: "invoice",
-    plural: "invoices",
-  };
+  const [selected, setSelected] = useState<string[]>([]);
 
-  const { selectedResources, allResourcesSelected, handleSelectionChange } =
-    useIndexResourceState(invoices);
+  const downloadInvoices = async (list: typeof invoices) => {
+    for (const inv of list) {
+      try {
+        await downloadSecureFile(
+          `/api/invoices/${inv.id}/pdf?template=${inv.templateUsed || "standard_b2b"}`,
+          `Invoice-${inv.invoiceNumber.replace(/\//g, "-")}.pdf`
+        );
+      } catch (error: any) {
+        window.alert(error.message);
+        return;
+      }
+    }
+  };
 
   const handleSearchChange = useCallback((value: string) => {
     setQuery(value);
@@ -245,104 +283,12 @@ export default function InvoicesListPage() {
     submit(fd, { method: "post" });
   };
 
-  const rowMarkup = invoices.map(
-    (
-      {
-        id,
-        invoiceNumber,
-        orderNumber,
-        date,
-        orderDate,
-        customer,
-        buyerEmail,
-        buyerPhone,
-        isB2B,
-        buyerGstin,
-        placeOfSupply,
-        isInterState,
-        taxableValueFormatted,
-        totalTaxFormatted,
-        grandTotalFormatted,
-        ewayBillRequired,
-        status,
-      },
-      index
-    ) => (
-      <IndexTable.Row
-        id={id}
-        key={id}
-        selected={selectedResources.includes(id)}
-        position={index}
-      >
-        <IndexTable.Cell>
-          <BlockStack gap="050">
-            <Link to={`/app/invoices/${id}`} style={{ textDecoration: "none", color: "inherit" }}>
-              <Text variant="bodyMd" fontWeight="bold" as="span">
-                {`Order #${orderNumber}`}
-              </Text>
-            </Link>
-            <Text as="span" variant="bodySm" tone="subdued">{invoiceNumber}</Text>
-            {status === "CANCELLED" && <Badge tone="critical">Cancelled</Badge>}
-            {status !== "CANCELLED" && ewayBillRequired && <Badge tone="warning">e-Way Bill</Badge>}
-          </BlockStack>
-        </IndexTable.Cell>
-        <IndexTable.Cell>
-          <BlockStack gap="050">
-            <Text as="span" variant="bodySm">{orderDate}</Text>
-            <Text as="span" variant="bodySm" tone="subdued">{`Invoice: ${date}`}</Text>
-          </BlockStack>
-        </IndexTable.Cell>
-        <IndexTable.Cell>
-          <BlockStack gap="050">
-            <Text as="span" variant="bodySm" fontWeight="medium">{customer}</Text>
-            {buyerEmail && <Text as="span" variant="bodySm" tone="subdued">{buyerEmail}</Text>}
-            {buyerPhone && <Text as="span" variant="bodySm" tone="subdued">{buyerPhone}</Text>}
-            {isB2B ? (
-              <Badge tone="info">{`B2B: ${buyerGstin}`}</Badge>
-            ) : (
-              <Text as="span" variant="bodySm" tone="subdued">B2C</Text>
-            )}
-          </BlockStack>
-        </IndexTable.Cell>
-        <IndexTable.Cell>
-          <BlockStack gap="050">
-            <Text as="span" variant="bodySm">{placeOfSupply}</Text>
-            <Text as="span" variant="bodySm" tone="subdued">
-              {isInterState ? "IGST" : "CGST + SGST"}
-            </Text>
-          </BlockStack>
-        </IndexTable.Cell>
-        <IndexTable.Cell>{taxableValueFormatted}</IndexTable.Cell>
-        <IndexTable.Cell>{totalTaxFormatted}</IndexTable.Cell>
-        <IndexTable.Cell>
-          <Text variant="bodyMd" fontWeight="bold" as="span">
-            {grandTotalFormatted}
-          </Text>
-        </IndexTable.Cell>
-        <IndexTable.Cell>
-          <ButtonGroup>
-            <Button
-              size="micro"
-              variant="primary"
-              onClick={() => {
-                setSelectedInvoice(invoices[index]);
-                setPreviewTemplate(invoices[index].templateUsed || "standard_b2b");
-              }}
-            >
-              View
-            </Button>
-          </ButtonGroup>
-        </IndexTable.Cell>
-      </IndexTable.Row>
-    )
-  );
-
   return (
     <Page
       titleMetadata={<InfoTip content="Invoices are created automatically from your Shopify orders. Sync adds your latest 50 orders, and Regenerate rebuilds invoices from current Shopify data." />}
       fullWidth
-      title="GST Tax Invoices"
-      subtitle={`Total ${totalCount} invoices issued (Rule 46 Compliant)`}
+      title="GST Invoices"
+      subtitle="Every invoiced order, with GST already computed"
       primaryAction={{
         content: isSyncing ? "Syncing Past Orders..." : "Sync Past Orders",
         onAction: handleSyncPastOrders,
@@ -353,10 +299,6 @@ export default function InvoicesListPage() {
           content: isRegenerating ? "Regenerating..." : "Regenerate Invoices",
           onAction: () => setConfirmRegenerate(true),
           loading: isRegenerating,
-        },
-        {
-          content: "Credit Notes",
-          url: "/app/credit-notes",
         },
         {
           content: "GSTR-1 Report",
@@ -391,11 +333,24 @@ export default function InvoicesListPage() {
           </Banner>
         )}
 
+        <div className="ong-pills">
+          <span className="ong-pill">On this page <strong>{invoices.length}</strong></span>
+          <span className="ong-pill">Total invoices <strong>{totalCount}</strong></span>
+          {selected.length > 0 && (
+            <Button
+              icon={<AppIcon name="download" size={16} />}
+              onClick={() => downloadInvoices(invoices.filter((inv) => selected.includes(inv.id)))}
+            >
+              {`Download ${selected.length} PDFs`}
+            </Button>
+          )}
+        </div>
+
         <Card padding="300">
           <TextField
             label="Search Invoices"
             labelHidden
-            placeholder="Search by Invoice #, Order #, Customer, or GSTIN..."
+            placeholder="Search by order, invoice, customer, email or GSTIN..."
             value={query}
             onChange={handleSearchChange}
             clearButton
@@ -421,27 +376,81 @@ export default function InvoicesListPage() {
             </Box>
           ) : (
             <>
-              <IndexTable
-                resourceName={resourceName}
-                itemCount={invoices.length}
-                selectedItemsCount={
-                  allResourcesSelected ? "All" : selectedResources.length
-                }
-                onSelectionChange={handleSelectionChange}
-                selectable={false}
-                headings={[
-                  { title: "Order / Invoice" },
-                  { title: "Order Date" },
-                  { title: "Customer" },
-                  { title: "Place of Supply" },
-                  { title: "Taxable" },
-                  { title: "GST" },
-                  { title: "Total" },
-                  { title: "Action" },
-                ]}
-              >
-                {rowMarkup}
-              </IndexTable>
+              <div className="ong-table-wrap">
+                <table className="ong-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: "36px" }}>
+                        <Checkbox
+                          label="Select all on this page"
+                          labelHidden
+                          checked={invoices.length > 0 && selected.length === invoices.length}
+                          onChange={(checked) => setSelected(checked ? invoices.map((inv) => inv.id) : [])}
+                        />
+                      </th>
+                      <th>Order</th>
+                      <th>Customer</th>
+                      <th>Amount</th>
+                      <th>Invoice</th>
+                      <th aria-label="Actions" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoices.map((inv) => {
+                      const items = inv.lineItems.filter((li) => li.hsnCode !== "996812").length;
+                      return (
+                        <tr key={inv.id}>
+                          <td>
+                            <Checkbox
+                              label={`Select order ${inv.orderNumber}`}
+                              labelHidden
+                              checked={selected.includes(inv.id)}
+                              onChange={(checked) =>
+                                setSelected((prev) => (checked ? [...prev, inv.id] : prev.filter((id) => id !== inv.id)))
+                              }
+                            />
+                          </td>
+                          <td>
+                            <Link className="ong-strong" to={`/app/invoices/${inv.id}`}>#{inv.orderNumber}</Link>
+                            <span className="ong-sub">{inv.orderDate}</span>
+                          </td>
+                          <td>
+                            {inv.customer}
+                            {inv.buyerEmail && <span className="ong-sub">{inv.buyerEmail}</span>}
+                            {inv.buyerPhone && <span className="ong-sub">{inv.buyerPhone}</span>}
+                            {inv.isB2B && <span className="ong-sub">GSTIN: {inv.buyerGstin}</span>}
+                          </td>
+                          <td>
+                            <span className="ong-strong">{inv.grandTotalFormatted}</span>
+                            <span className="ong-sub">{`Taxable ${inv.taxableValueFormatted} · GST ${inv.totalTaxFormatted}`}</span>
+                            <span className="ong-sub">{`${items} ${items === 1 ? "item" : "items"} · ${inv.placeOfSupply}`}</span>
+                          </td>
+                          <td>
+                            {inv.invoiceNumber}
+                            <span className="ong-sub">{`Issued ${inv.date}`}</span>
+                            {inv.status === "CANCELLED" ? (
+                              <span className="ong-status bad"><AppIcon name="x-circle" size={13} />Cancelled</span>
+                            ) : inv.ewayBillRequired ? (
+                              <span className="ong-status warn"><AppIcon name="truck" size={13} />e-Way Bill needed</span>
+                            ) : (
+                              <span className="ong-status ok"><AppIcon name="check-circle" size={13} />Created</span>
+                            )}
+                          </td>
+                          <td>
+                            <RowMenu
+                              onView={() => {
+                                setSelectedInvoice(inv);
+                                setPreviewTemplate(inv.templateUsed || "standard_b2b");
+                              }}
+                              onDownload={() => downloadInvoices([inv])}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
               <Box padding="400">
                 <InlineStack align="center">
                   <Pagination

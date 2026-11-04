@@ -1,23 +1,20 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { useLoaderData, useNavigate } from "@remix-run/react";
+import { Link, useLoaderData, useNavigate } from "@remix-run/react";
 import {
   Page,
-  Layout,
   Card,
   BlockStack,
   InlineGrid,
   Text,
-  Badge,
-  DataTable,
   Button,
   Banner,
   Box,
-  Divider,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { InfoTip } from "../components/InfoTip";
+import { AppIcon } from "../components/AppIcon";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -63,7 +60,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       id: inv.id,
       invoiceNumber: inv.invoiceNumber,
       orderNumber: inv.shopifyOrderNumber,
-      date: new Date(inv.invoiceDate).toLocaleDateString("en-IN"),
+      date: new Date(inv.invoiceDate).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
       customer: inv.buyerTradeName || "Retail Customer",
       isB2B: inv.isB2B,
       amount: `₹${inv.grandTotal.toFixed(2)}`,
@@ -76,23 +73,14 @@ export default function DashboardPage() {
   const { hasConfiguredGST, metrics, recentInvoices } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
 
-  const invoiceRows = recentInvoices.map((inv) => [
-    <Text as="span" fontWeight="bold">{inv.invoiceNumber}</Text>,
-    `#${inv.orderNumber}`,
-    inv.date,
-    inv.customer,
-    inv.isB2B ? <Badge tone="info">B2B (GSTIN)</Badge> : <Badge>B2C</Badge>,
-    inv.amount,
-    <Button size="micro" onClick={() => navigate(`/app/invoices/${inv.id}`)}>View</Button>,
-  ]);
 
   return (
     <Page
       titleMetadata={<InfoTip content="A summary of your invoices, sales and GST. Cancelled invoices are not counted." />}
-      title="GST Billing Dashboard"
-      subtitle="Automated Rule 46 Compliant Invoices, GSTR Reports & e-Invoicing"
+      title="Overview"
+      subtitle="Your invoices, sales and GST at a glance"
       primaryAction={{
-        content: "Sync Past Orders",
+        content: "Go to Invoices",
         onAction: () => navigate("/app/invoices"),
       }}
       secondaryActions={[
@@ -115,66 +103,59 @@ export default function DashboardPage() {
 
         {/* KPI Metrics */}
         <InlineGrid columns={{ xs: 1, sm: 2, md: 4 }} gap="400">
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h3" variant="headingSm" tone="subdued">Total Invoices (FY)</Text>
-              <Text as="p" variant="headingLg" fontWeight="bold">{metrics.totalInvoices}</Text>
-              <Text as="p" variant="bodyXs" tone="subdued">{metrics.b2bInvoices} B2B Invoices</Text>
-            </BlockStack>
-          </Card>
-
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h3" variant="headingSm" tone="subdued">Net Taxable Sales</Text>
-              <Text as="p" variant="headingLg" fontWeight="bold">₹{metrics.taxableValue.toLocaleString("en-IN")}</Text>
-              <Text as="p" variant="bodyXs" tone="success">Net of GST</Text>
-            </BlockStack>
-          </Card>
-
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h3" variant="headingSm" tone="subdued">Output GST Collected</Text>
-              <Text as="p" variant="headingLg" fontWeight="bold">₹{metrics.totalTax.toLocaleString("en-IN")}</Text>
-              <Text as="p" variant="bodyXs" tone="subdued">CGST: ₹{metrics.cgstTotal.toFixed(0)} | SGST: ₹{metrics.sgstTotal.toFixed(0)} | IGST: ₹{metrics.igstTotal.toFixed(0)}</Text>
-            </BlockStack>
-          </Card>
-
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h3" variant="headingSm" tone="subdued">Gross Revenue</Text>
-              <Text as="p" variant="headingLg" fontWeight="bold">₹{metrics.grandTotal.toLocaleString("en-IN")}</Text>
-              <Text as="p" variant="bodyXs" tone="success">Includes Taxes</Text>
-            </BlockStack>
-          </Card>
+          {[
+            { icon: "receipt", label: "Total Invoices", value: String(metrics.totalInvoices), note: `${metrics.b2bInvoices} B2B` },
+            { icon: "rupee", label: "Taxable Sales", value: `₹${metrics.taxableValue.toLocaleString("en-IN")}`, note: "Before GST" },
+            { icon: "percent", label: "GST on Sales", value: `₹${metrics.totalTax.toLocaleString("en-IN")}`, note: `IGST ₹${metrics.igstTotal.toLocaleString("en-IN")}` },
+            { icon: "wallet", label: "Invoice Value", value: `₹${metrics.grandTotal.toLocaleString("en-IN")}`, note: "Including GST" },
+          ].map((stat) => (
+            <Card key={stat.label}>
+              <div className="ong-stat">
+                <span className="ong-stat-icon"><AppIcon name={stat.icon} /></span>
+                <BlockStack gap="050">
+                  <Text as="h3" variant="bodySm" tone="subdued">{stat.label}</Text>
+                  <Text as="p" variant="headingMd" fontWeight="bold">{stat.value}</Text>
+                  <Text as="p" variant="bodySm" tone="subdued">{stat.note}</Text>
+                </BlockStack>
+              </div>
+            </Card>
+          ))}
         </InlineGrid>
 
-        {/* Recent Invoices Table */}
-        <Layout>
-          <Layout.Section>
-            <Card>
-              <BlockStack gap="400">
-                <InlineGrid columns="1fr auto">
-                  <Text as="h2" variant="headingMd">Recent Invoices</Text>
-                  <Button variant="plain" onClick={() => navigate("/app/invoices")}>View All Invoices</Button>
-                </InlineGrid>
-                <Divider />
-                {recentInvoices.length === 0 ? (
-                  <Box padding="600">
-                    <Text as="p" alignment="center" tone="subdued">
-                      No invoices generated yet. Invoices will automatically appear when orders are fulfilled or created.
-                    </Text>
-                  </Box>
-                ) : (
-                  <DataTable
-                    columnContentTypes={["text", "text", "text", "text", "text", "numeric", "text"]}
-                    headings={["Invoice No.", "Order", "Date", "Customer / Buyer", "Type", "Amount", "Action"]}
-                    rows={invoiceRows}
-                  />
-                )}
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-        </Layout>
+        <Card padding="0">
+          <Box padding="400">
+            <InlineGrid columns="1fr auto" alignItems="center">
+              <Text as="h2" variant="headingMd">Recent Invoices</Text>
+              <Button variant="plain" onClick={() => navigate("/app/invoices")}>View all</Button>
+            </InlineGrid>
+          </Box>
+          {recentInvoices.length === 0 ? (
+            <Box padding="600">
+              <Text as="p" alignment="center" tone="subdued">No invoices yet. New ones appear here automatically.</Text>
+            </Box>
+          ) : (
+            <div className="ong-table-wrap">
+              <table className="ong-table">
+                <thead>
+                  <tr><th>Order</th><th>Customer</th><th>Amount</th><th>Invoice</th></tr>
+                </thead>
+                <tbody>
+                  {recentInvoices.map((inv) => (
+                    <tr key={inv.id}>
+                      <td>
+                        <Link className="ong-strong" to={`/app/invoices/${inv.id}`}>#{inv.orderNumber}</Link>
+                        <span className="ong-sub">{inv.date}</span>
+                      </td>
+                      <td>{inv.customer}<span className="ong-sub">{inv.isB2B ? "B2B" : "B2C"}</span></td>
+                      <td className="ong-strong">{inv.amount}</td>
+                      <td>{inv.invoiceNumber}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
       </BlockStack>
     </Page>
   );

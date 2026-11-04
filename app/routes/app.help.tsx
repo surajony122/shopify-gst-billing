@@ -87,7 +87,7 @@ export default function HelpPage() {
             <List.Item><strong>Order cancelled, invoice from an earlier month:</strong> the invoice stays on record, because it may already be filed, and a credit note reverses it.</List.Item>
             <List.Item><strong>Order cancelled before an invoice exists:</strong> no invoice is created.</List.Item>
           </List>
-          <Text as="p">To see credit notes, open GST Invoices and choose Credit Notes.</Text>
+          <Text as="p">To see credit notes, choose Credit Notes in the menu.</Text>
         </Section>
 
         <Section id="gstr1" title="GSTR-1 report">
@@ -110,7 +110,7 @@ export default function HelpPage() {
 
         <Section id="pages" title="Each page explained">
           <List>
-            <List.Item><strong>Dashboard:</strong> a summary of invoices, sales and tax.</List.Item>
+            <List.Item><strong>Overview:</strong> a summary of invoices, sales and tax.</List.Item>
             <List.Item><strong>GST Invoices:</strong> search, view and download invoices, and open credit notes.</List.Item>
             <List.Item><strong>Template Editor:</strong> how your invoice looks.</List.Item>
             <List.Item><strong>Rules & Routing:</strong> when invoices are created, their numbering, and which design each order uses.</List.Item>
