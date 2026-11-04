@@ -1,7 +1,7 @@
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import { formatInvoiceNumber, getCurrentFinancialYear } from "../services/gst-engine";
+import { createCreditNote } from "../services/invoice-builder.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { shop, payload } = await authenticate.webhook(request);
@@ -25,6 +25,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return new Response("Invoice not found for refunded order", { status: 200 });
   }
 
+  // A cancelled invoice is already out of the GST return, so there is nothing to reverse.
+  if (invoice.status === "CANCELLED") {
+    return new Response("Invoice already cancelled", { status: 200 });
+  }
+
   // Calculate refunded amount
   const totalRefundAmount = (refund.transactions || []).reduce(
     (sum: number, t: any) => (t.status === "success" ? sum + parseFloat(t.amount) : sum),
@@ -36,42 +41,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return new Response("No money refunded, no credit note needed", { status: 200 });
   }
 
-  // Pro-rata tax reversal calculation
-  const ratio = invoice.grandTotal > 0 ? Math.min(1, totalRefundAmount / invoice.grandTotal) : 1;
-  const taxableAdjusted = Number((invoice.subtotalTaxable * ratio).toFixed(2));
-  const cgstAdjusted = Number((invoice.cgstTotal * ratio).toFixed(2));
-  const sgstAdjusted = Number((invoice.sgstTotal * ratio).toFixed(2));
-  const igstAdjusted = Number((invoice.igstTotal * ratio).toFixed(2));
-
-  try {
-    await prisma.$transaction(async (tx) => {
-      const counter = await tx.storeSetting.upsert({
-        where: { shop },
-        update: { nextCreditNoteNumber: { increment: 1 } },
-        create: { shop, nextCreditNoteNumber: 2 },
-      });
-
-      await tx.creditNote.create({
-        data: {
-          shop,
-          invoiceId: invoice.id,
-          shopifyRefundId,
-          creditNoteNumber: formatInvoiceNumber(
-            counter.creditNotePrefix || "CN/{FY}/",
-            counter.nextCreditNoteNumber - 1
-          ),
-          financialYear: getCurrentFinancialYear(),
-          reason: refund.note || "Customer Refund / Return",
-          taxableAdjusted,
-          cgstAdjusted,
-          sgstAdjusted,
-          igstAdjusted,
-          grandTotalAdjusted: Number(totalRefundAmount.toFixed(2)),
-        },
-      });
-    });
-  } catch (error: any) {
-    if (error?.code !== "P2002") throw error;
+  const created = await createCreditNote(shop, invoice, {
+    shopifyRefundId,
+    amount: totalRefundAmount,
+    reason: refund.note || "Customer Refund / Return",
+  });
+  if (!created) {
+    return new Response("Invoice already fully credited", { status: 200 });
   }
 
   return new Response("Credit note recorded", { status: 200 });

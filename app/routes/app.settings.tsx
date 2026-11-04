@@ -73,6 +73,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       state,
       stateCode,
       addressLine1: formData.get("addressLine1") as string,
+      addressLine2: formData.get("addressLine2") as string,
+      panNumber: ((formData.get("panNumber") as string) || "").trim().toUpperCase(),
+      phone: formData.get("phone") as string,
+      email: formData.get("email") as string,
       city: formData.get("city") as string,
       pincode: formData.get("pincode") as string,
       invoicePrefix: formData.get("invoicePrefix") as string || "INV/{FY}/",
@@ -99,6 +103,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       state,
       stateCode,
       addressLine1: formData.get("addressLine1") as string,
+      addressLine2: formData.get("addressLine2") as string,
+      panNumber: ((formData.get("panNumber") as string) || "").trim().toUpperCase(),
+      phone: formData.get("phone") as string,
+      email: formData.get("email") as string,
       city: formData.get("city") as string,
       pincode: formData.get("pincode") as string,
       invoicePrefix: formData.get("invoicePrefix") as string || "INV/{FY}/",
@@ -197,6 +205,25 @@ export default function SettingsPage() {
                 onChange={(val) => setForm({ ...form, tradeName: val })}
                 autoComplete="off"
               />
+              <TextField
+                label="PAN"
+                value={form.panNumber || ""}
+                onChange={(val) => setForm({ ...form, panNumber: val })}
+                autoComplete="off"
+              />
+              <TextField
+                label="Business Phone"
+                value={form.phone || ""}
+                onChange={(val) => setForm({ ...form, phone: val })}
+                autoComplete="off"
+              />
+              <TextField
+                label="Business Email"
+                type="email"
+                value={form.email || ""}
+                onChange={(val) => setForm({ ...form, email: val })}
+                autoComplete="off"
+              />
             </InlineGrid>
 
             <Divider />
@@ -205,6 +232,12 @@ export default function SettingsPage() {
               label="Address Line 1"
               value={form.addressLine1 || ""}
               onChange={(val) => setForm({ ...form, addressLine1: val })}
+              autoComplete="off"
+            />
+            <TextField
+              label="Address Line 2"
+              value={form.addressLine2 || ""}
+              onChange={(val) => setForm({ ...form, addressLine2: val })}
               autoComplete="off"
             />
             <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">

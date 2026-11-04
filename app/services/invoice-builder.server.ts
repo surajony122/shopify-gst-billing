@@ -33,6 +33,7 @@ export interface NormalizedOrder {
   orderNumber: string;
   createdAt: string;
   taxesIncluded: boolean;
+  cancelled?: boolean;
   shippingAmount: number;
   totalPaid?: number;
   province?: string | null;
@@ -62,6 +63,7 @@ export function normalizeWebhookOrder(order: any): NormalizedOrder {
     orderNumber: String(order.order_number || order.name?.replace("#", "") || order.id),
     createdAt: order.created_at || new Date().toISOString(),
     taxesIncluded: Boolean(order.taxes_included),
+    cancelled: Boolean(order.cancelled_at),
     shippingAmount: (order.shipping_lines || []).reduce(
       (sum: number, line: any) => sum + money(line.discounted_price ?? line.price),
       0
@@ -90,16 +92,16 @@ export function normalizeWebhookOrder(order: any): NormalizedOrder {
 const gidNumber = (gid?: string | null) => gid?.split("/").pop() || null;
 
 export function normalizeGraphqlOrder(order: any): NormalizedOrder {
-  const customerName = `${order.customer?.firstName || ""} ${order.customer?.lastName || ""}`.trim();
   return {
     id: gidNumber(order.id) as string,
     orderNumber: order.name?.replace("#", "") || (gidNumber(order.id) as string),
     createdAt: order.createdAt,
     taxesIncluded: Boolean(order.taxesIncluded),
+    cancelled: Boolean(order.cancelledAt),
     shippingAmount: money(order.shippingLine?.discountedPriceSet?.shopMoney?.amount),
     totalPaid: order.totalPriceSet ? money(order.totalPriceSet.shopMoney?.amount) : undefined,
     province: order.shippingAddress?.province || order.billingAddress?.province,
-    customerName: customerName || order.shippingAddress?.name,
+    customerName: order.shippingAddress?.name || order.billingAddress?.name,
     email: order.email,
     phone: order.phone || order.shippingAddress?.phone,
     shippingAddress: order.shippingAddress,
@@ -127,10 +129,11 @@ function findAttribute(order: NormalizedOrder, keys: string[]): string | null {
 }
 
 /** Works out the tax, rules and buyer details for an order without saving anything. */
-async function prepareInvoice(shop: string, order: NormalizedOrder) {
-  const [setting, catalog] = await Promise.all([
+async function prepareInvoice(shop: string, order: NormalizedOrder, admin?: any) {
+  const [setting, catalog, collectionMappings] = await Promise.all([
     prisma.storeSetting.findUnique({ where: { shop } }),
     prisma.hsnCatalog.findMany({ where: { shop } }),
+    prisma.collectionHsn.findMany({ where: { shop } }),
   ]);
   const sellerStateCode = setting?.stateCode || "27";
 
@@ -144,14 +147,28 @@ async function prepareInvoice(shop: string, order: NormalizedOrder) {
     (buyerGstin && getStateCodeFromGSTIN(buyerGstin)) ||
     (order.province ? getStateCodeFromName(order.province, sellerStateCode) : sellerStateCode);
 
+  const findProductMapping = (line: NormalizedOrderLine) =>
+    catalog.find((c) => line.variantId && c.shopifyVariantId === line.variantId) ||
+    catalog.find((c) => line.productId && c.shopifyProductId === line.productId) ||
+    catalog.find((c) => line.sku && c.sku === line.sku) ||
+    catalog.find((c) => c.productTitle === line.title);
+
+  const unmappedProductIds = order.lines
+    .filter((line) => line.productId && !findProductMapping(line))
+    .map((line) => line.productId as string);
+  const productCollections =
+    collectionMappings.length > 0 ? await fetchProductCollections(admin, unmappedProductIds) : new Map<string, string[]>();
+
+  // Composition dealers issue a Bill of Supply and cannot collect GST from buyers.
+  const isComposition = setting?.taxScheme === "composition";
   const tierRuleEnabled = setting?.apparelFootwearTierRule ?? true;
   const lineItems = order.lines.map((line) => {
+    // Priority: product, then collection, then the store-wide default.
+    const collectionIds = productCollections.get(line.productId || "") || [];
     const mapping =
-      catalog.find((c) => line.variantId && c.shopifyVariantId === line.variantId) ||
-      catalog.find((c) => line.productId && c.shopifyProductId === line.productId) ||
-      catalog.find((c) => line.sku && c.sku === line.sku) ||
-      catalog.find((c) => c.productTitle === line.title);
-    const hsnCode = mapping?.hsnCode || "999999";
+      findProductMapping(line) ||
+      collectionMappings.find((m) => collectionIds.includes(m.shopifyCollectionId));
+    const hsnCode = mapping?.hsnCode || setting?.defaultHsnCode || "999999";
     const salePerPiece = line.unitPrice - line.discount / Math.max(1, line.quantity);
     // The apparel threshold applies to the value before GST. 5% is the rate at the threshold.
     const valuePerPiece = order.taxesIncluded ? salePerPiece / 1.05 : salePerPiece;
@@ -163,7 +180,9 @@ async function prepareInvoice(shop: string, order: NormalizedOrder) {
       quantity: line.quantity,
       unitPrice: line.unitPrice,
       discountAmount: line.discount,
-      gstRate: resolveItemGstRate(hsnCode, valuePerPiece, mapping?.gstRate ?? 18, tierRuleEnabled).rate,
+      gstRate: isComposition
+        ? 0
+        : resolveItemGstRate(hsnCode, valuePerPiece, mapping?.gstRate ?? setting?.defaultGstRate ?? 18, tierRuleEnabled).rate,
     };
   });
 
@@ -176,11 +195,13 @@ async function prepareInvoice(shop: string, order: NormalizedOrder) {
       quantity: 1,
       unitPrice: order.shippingAmount,
       discountAmount: 0,
-      gstRate: resolveShippingGstRate(
-        setting?.shippingTaxMode,
-        lineItems.map((item) => item.gstRate),
-        setting?.shippingGstRate
-      ),
+      gstRate: isComposition
+        ? 0
+        : resolveShippingGstRate(
+            setting?.shippingTaxMode,
+            lineItems.map((item) => item.gstRate),
+            setting?.shippingGstRate
+          ),
     });
   }
 
@@ -268,12 +289,16 @@ async function prepareInvoice(shop: string, order: NormalizedOrder) {
  */
 export async function createInvoiceForOrder(
   shop: string,
-  order: NormalizedOrder
+  order: NormalizedOrder,
+  admin?: any
 ): Promise<{ created: boolean; invoiceNumber?: string }> {
+  // A cancelled order is not a supply, so it gets no invoice.
+  if (order.cancelled) return { created: false };
+
   const existing = await prisma.invoice.findUnique({ where: { shopifyOrderId: order.id } });
   if (existing) return { created: false, invoiceNumber: existing.invoiceNumber };
 
-  const { fields, rules, usesB2BSeries } = await prepareInvoice(shop, order);
+  const { fields, rules, usesB2BSeries } = await prepareInvoice(shop, order, admin);
 
   try {
     const invoiceNumber = await prisma.$transaction(async (tx) => {
@@ -316,12 +341,12 @@ const orderFields = (withCustomer: boolean) => `
   name
   createdAt
   taxesIncluded
+  cancelledAt
   ${withCustomer ? `
   email
   phone
-  customer { firstName lastName }
   shippingAddress { name phone address1 address2 city province zip country }
-  billingAddress { address1 address2 city province zip country }
+  billingAddress { name address1 address2 city province zip country }
   ` : ""}
   totalPriceSet { shopMoney { amount } }
   shippingLine { discountedPriceSet { shopMoney { amount } } }
@@ -387,6 +412,30 @@ export function fetchOrdersByIds(admin: any, ids: string[]): Promise<FetchedOrde
   );
 }
 
+/** Returns each product's collection IDs, used to apply collection-level HSN codes. */
+async function fetchProductCollections(admin: any, productIds: string[]): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>();
+  if (!admin || productIds.length === 0) return result;
+
+  try {
+    const gids = [...new Set(productIds)].map((id) => `"gid://shopify/Product/${id}"`).join(",");
+    const response = await admin.graphql(
+      `query { nodes(ids: [${gids}]) { ... on Product { id collections(first: 50) { nodes { id } } } } }`
+    );
+    const body = (await response.json()) as any;
+    for (const product of body.data?.nodes || []) {
+      if (!product?.id) continue;
+      result.set(
+        gidNumber(product.id) as string,
+        (product.collections?.nodes || []).map((c: any) => gidNumber(c.id))
+      );
+    }
+  } catch (error) {
+    console.warn("Could not read product collections, using the store default HSN", error);
+  }
+  return result;
+}
+
 /** Development stores only hold test orders, so their invoices are safe to rebuild freely. */
 export async function isDevelopmentStore(admin: any): Promise<boolean> {
   try {
@@ -402,6 +451,7 @@ export async function isDevelopmentStore(admin: any): Promise<boolean> {
 
 export interface RegenerateResult {
   regenerated: number;
+  markedCancelled: number;
   skippedCreditNotes: number;
   skippedEarlierMonths: number;
   skippedMissingOrders: number;
@@ -419,10 +469,11 @@ export async function regenerateInvoices(
   shop: string,
   fetchOrders: (ids: string[]) => Promise<FetchedOrders>,
   isDevStore: boolean,
-  now: Date = new Date()
+  now: Date = new Date(),
+  admin?: any
 ): Promise<RegenerateResult> {
   const invoices = await prisma.invoice.findMany({
-    where: { shop },
+    where: { shop, status: "ACTIVE" },
     include: { _count: { select: { creditNotes: true } } },
     orderBy: { invoiceDate: "asc" },
   });
@@ -432,6 +483,7 @@ export async function regenerateInvoices(
 
   const result: RegenerateResult = {
     regenerated: 0,
+    markedCancelled: 0,
     skippedCreditNotes: 0,
     skippedEarlierMonths: 0,
     skippedMissingOrders: 0,
@@ -463,6 +515,15 @@ export async function regenerateInvoices(
         continue;
       }
 
+      if (fetched.cancelled) {
+        await prisma.invoice.update({
+          where: { id: invoice.id },
+          data: { status: "CANCELLED", cancelledAt: now },
+        });
+        result.markedCancelled += 1;
+        continue;
+      }
+
       // Without customer access, keep what the invoice already knows about the buyer.
       const order: NormalizedOrder = customerDataAvailable
         ? fetched
@@ -476,7 +537,7 @@ export async function regenerateInvoices(
             billingAddress: invoice.billingAddress,
           };
 
-      const { fields } = await prepareInvoice(shop, order);
+      const { fields } = await prepareInvoice(shop, order, admin);
       await prisma.$transaction([
         prisma.invoiceLineItem.deleteMany({ where: { invoiceId: invoice.id } }),
         prisma.invoice.update({ where: { id: invoice.id }, data: fields }),
@@ -486,4 +547,91 @@ export async function regenerateInvoices(
   }
 
   return result;
+}
+
+// ---------- Credit notes and cancellations ----------
+
+/**
+ * Records a credit note, capped at what has not been credited yet so a refund and
+ * a cancellation for the same order cannot reverse more than the invoice total.
+ */
+export async function createCreditNote(
+  shop: string,
+  invoice: { id: string; grandTotal: number; subtotalTaxable: number; cgstTotal: number; sgstTotal: number; igstTotal: number },
+  details: { shopifyRefundId: string; amount: number; reason: string }
+): Promise<boolean> {
+  const credited = await prisma.creditNote.aggregate({
+    where: { invoiceId: invoice.id },
+    _sum: { grandTotalAdjusted: true },
+  });
+  const remaining = invoice.grandTotal - (credited._sum.grandTotalAdjusted || 0);
+  const amount = Math.min(details.amount, remaining);
+  if (amount < 0.01) return false;
+
+  const ratio = invoice.grandTotal > 0 ? amount / invoice.grandTotal : 0;
+  const scaled = (value: number) => Number((value * ratio).toFixed(2));
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const counter = await tx.storeSetting.upsert({
+        where: { shop },
+        update: { nextCreditNoteNumber: { increment: 1 } },
+        create: { shop, nextCreditNoteNumber: 2 },
+      });
+
+      await tx.creditNote.create({
+        data: {
+          shop,
+          invoiceId: invoice.id,
+          shopifyRefundId: details.shopifyRefundId,
+          creditNoteNumber: formatInvoiceNumber(
+            counter.creditNotePrefix || "CN/{FY}/",
+            counter.nextCreditNoteNumber - 1
+          ),
+          financialYear: getCurrentFinancialYear(),
+          reason: details.reason,
+          taxableAdjusted: scaled(invoice.subtotalTaxable),
+          cgstAdjusted: scaled(invoice.cgstTotal),
+          sgstAdjusted: scaled(invoice.sgstTotal),
+          igstAdjusted: scaled(invoice.igstTotal),
+          grandTotalAdjusted: Number(amount.toFixed(2)),
+        },
+      });
+    });
+    return true;
+  } catch (error: any) {
+    if (error?.code === "P2002") return false;
+    throw error;
+  }
+}
+
+export type CancelOutcome = "no_invoice" | "cancelled" | "credit_note" | "nothing_to_do";
+
+/**
+ * An invoice from the current month has not reached a GST return yet, so it can simply
+ * be cancelled. An earlier month's invoice may already be filed, so it stays on record
+ * and a credit note reverses whatever has not been credited.
+ */
+export async function cancelInvoiceForOrder(shop: string, orderId: string, now: Date = new Date()): Promise<CancelOutcome> {
+  const invoice = await prisma.invoice.findFirst({
+    where: { shop, shopifyOrderId: orderId },
+    include: { _count: { select: { creditNotes: true } } },
+  });
+  if (!invoice) return "no_invoice";
+  if (invoice.status === "CANCELLED") return "nothing_to_do";
+
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const { start } = getReturnPeriodRange(ist.getUTCMonth() + 1, ist.getUTCFullYear());
+
+  if (invoice.grandTotal === 0 || (invoice._count.creditNotes === 0 && invoice.invoiceDate >= start)) {
+    await prisma.invoice.update({ where: { id: invoice.id }, data: { status: "CANCELLED", cancelledAt: now } });
+    return "cancelled";
+  }
+
+  const created = await createCreditNote(shop, invoice, {
+    shopifyRefundId: `cancel-${orderId}`,
+    amount: invoice.grandTotal,
+    reason: "Order cancelled",
+  });
+  return created ? "credit_note" : "nothing_to_do";
 }

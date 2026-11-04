@@ -14,6 +14,9 @@ function runAutoTable(doc: any, options: any) {
   }
 }
 
+const contactLine = (party: { phone?: string; email?: string }) =>
+  [party.phone, party.email].filter(Boolean).join(" | ");
+
 export interface InvoicePDFData {
   invoiceNumber: string;
   orderNumber: string;
@@ -37,6 +40,8 @@ export interface InvoicePDFData {
     tradeName?: string;
     gstin?: string;
     address: string;
+    phone?: string;
+    email?: string;
     state: string;
     stateCode: string;
   };
@@ -172,6 +177,10 @@ async function generateThermalPOSPDF(data: InvoicePDFData): Promise<Buffer> {
   doc.text(`Date  : ${data.invoiceDate} | Order: #${data.orderNumber}`, 4, y);
   y += 3.5;
   doc.text(`Buyer : ${(data.buyer.legalName || "Retail Customer").substring(0, 32)}`, 4, y);
+  if (data.buyer.phone) {
+    y += 3.5;
+    doc.text(`Phone : ${data.buyer.phone}`, 4, y);
+  }
   if (data.buyer.gstin) {
     y += 3.5;
     doc.text(`GSTIN : ${data.buyer.gstin}`, 4, y);
@@ -369,6 +378,13 @@ async function generateMinimalistPDF(data: InvoicePDFData): Promise<Buffer> {
 
   doc.text(`${data.seller.city || ""}, ${data.seller.state || ""}`, col1, y);
   doc.text(`${data.buyer.state} (Code: ${data.buyer.stateCode})`, col3, y);
+  y += 3.8;
+
+  if (data.buyer.address) doc.text(data.buyer.address.substring(0, 60), col3, y);
+  y += 3.8;
+
+  doc.text(contactLine(data.seller), col1, y);
+  doc.text(contactLine(data.buyer), col3, y);
   y += 7;
 
   // Clean Minimalist Table
@@ -591,6 +607,14 @@ export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffe
   sellerY += 4;
   doc.setFont("helvetica", "normal");
   doc.text(`State: ${data.seller.state} (Code: ${data.seller.stateCode})`, leftX, sellerY);
+  if (data.seller.pan) {
+    sellerY += 4;
+    doc.text(`PAN: ${data.seller.pan}`, leftX, sellerY);
+  }
+  if (data.seller.phone || data.seller.email) {
+    sellerY += 4;
+    doc.text(contactLine(data.seller).substring(0, 60), leftX, sellerY);
+  }
 
   // Invoice Details (Right Column)
   doc.setFont("helvetica", "bold");
@@ -628,7 +652,8 @@ export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffe
   doc.text(data.buyer.legalName || data.buyer.tradeName || "Retail Customer (B2C)", leftX + 3, y + 10);
 
   doc.setFont("helvetica", "normal");
-  doc.text(data.buyer.address || "As per order shipping address", leftX + 3, y + 14);
+  doc.text((data.buyer.address || "As per order shipping address").substring(0, 56), leftX + 3, y + 14);
+  doc.text(contactLine(data.buyer).substring(0, 56), leftX + 3, y + 18);
 
   if (data.buyer.gstin) {
     doc.setFont("helvetica", "bold");

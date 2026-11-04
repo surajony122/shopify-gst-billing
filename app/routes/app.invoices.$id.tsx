@@ -13,6 +13,7 @@ import {
   DataTable,
   Box,
   InlineGrid,
+  Banner,
 } from "@shopify/polaris";
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
@@ -60,6 +61,9 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
       date: new Date(invoice.invoiceDate).toLocaleDateString("en-IN"),
       orderDate: new Date(invoice.orderDate).toLocaleDateString("en-IN"),
       isB2B: invoice.isB2B,
+      status: invoice.status,
+      buyerEmail: invoice.buyerEmail,
+      buyerPhone: invoice.buyerPhone,
       buyerGstin: invoice.buyerGstin || "N/A",
       buyerTradeName: invoice.buyerTradeName || "Retail Customer (B2C)",
       placeOfSupplyState: cleanStateName(invoice.placeOfSupplyState),
@@ -183,6 +187,12 @@ export default function SingleInvoiceViewPage() {
       ]}
     >
       <BlockStack gap="500">
+        {invoice.status === "CANCELLED" && (
+          <Banner tone="critical" title="This invoice is cancelled">
+            <p>The order was cancelled in Shopify, so this invoice is left out of your GST totals and GSTR-1.</p>
+          </Banner>
+        )}
+
         {/* Invoice Summary Card */}
         <Card>
           <BlockStack gap="300">

@@ -25,10 +25,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const { start, end } = getReturnPeriodRange(month, year);
 
-  const [invoices, creditNotes, setting] = await Promise.all([
+  const [invoices, cancelledInvoices, creditNotes, setting] = await Promise.all([
     prisma.invoice.findMany({
-      where: { shop, invoiceDate: { gte: start, lt: end } },
+      where: { shop, status: "ACTIVE", invoiceDate: { gte: start, lt: end } },
       include: { lineItems: true },
+    }),
+    prisma.invoice.findMany({
+      where: { shop, status: "CANCELLED", invoiceDate: { gte: start, lt: end } },
+      select: { invoiceNumber: true },
     }),
     prisma.creditNote.findMany({
       where: { shop, date: { gte: start, lt: end } },
@@ -37,12 +41,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     prisma.storeSetting.findUnique({ where: { shop } }),
   ]);
 
+  if (setting?.taxScheme === "composition") {
+    return new Response("Composition dealers file CMP-08 and GSTR-4, not GSTR-1", { status: 400 });
+  }
+
+  const cancelledNumbers = cancelledInvoices.map((inv) => inv.invoiceNumber);
+
   if (format === "json") {
     if (!setting?.gstin) {
       return new Response("Add your GSTIN in GST Settings before exporting the JSON file", { status: 400 });
     }
 
-    return new Response(JSON.stringify(buildGSTR1Json(invoices, creditNotes, setting.gstin, month, year), null, 2), {
+    return new Response(JSON.stringify(buildGSTR1Json(invoices, creditNotes, setting.gstin, month, year, cancelledNumbers), null, 2), {
       status: 200,
       headers: {
         "Content-Type": "application/json",
@@ -52,7 +62,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     });
   }
 
-  return new Response(new Uint8Array(generateGSTR1Workbook(invoices, creditNotes)), {
+  return new Response(new Uint8Array(generateGSTR1Workbook(invoices, creditNotes, cancelledNumbers)), {
     status: 200,
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

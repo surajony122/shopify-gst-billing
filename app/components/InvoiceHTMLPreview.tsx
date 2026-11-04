@@ -12,6 +12,8 @@ export interface InvoicePreviewProps {
     isB2B: boolean;
     buyerGstin?: string | null;
     buyerTradeName?: string | null;
+    buyerEmail?: string | null;
+    buyerPhone?: string | null;
     shippingAddress?: any;
     billingAddress?: any;
     placeOfSupplyState: string;
@@ -82,6 +84,7 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
   const brandColor = seller.brandColor || "#212B36";
   const isComposition = seller.taxScheme === "composition";
   const sellerTitle = seller.tradeName || seller.legalName || "My Store";
+  const buyerContact = [invoice.buyerPhone, invoice.buyerEmail].filter(Boolean).join(" | ");
   const buyerTitle = invoice.buyerTradeName || (invoice.isB2B ? "B2B Business Buyer" : "Retail Customer (B2C)");
 
   const words = numberToIndianWords(invoice.grandTotal);
@@ -154,6 +157,7 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
             <div><strong>Inv No:</strong> {invoice.invoiceNumber}</div>
             <div><strong>Date  :</strong> {invoice.date} | <strong>Order:</strong> #{invoice.orderNumber}</div>
             <div><strong>Buyer :</strong> {buyerTitle.substring(0, 26)}</div>
+            {buyerContact && <div>{buyerContact}</div>}
             {invoice.buyerGstin && <div><strong>GSTIN :</strong> {invoice.buyerGstin}</div>}
             <div><strong>POS   :</strong> {invoice.placeOfSupplyCode}-{invoice.placeOfSupplyState}</div>
           </div>
@@ -282,6 +286,7 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
             <div>
               <div style={{ textTransform: "uppercase", fontSize: "10px", fontWeight: "700", color: "#9ca3af", letterSpacing: "0.5px", marginBottom: "4px" }}>BILLED TO</div>
               <div style={{ fontWeight: "600", fontSize: "14px", color: "#111827" }}>{buyerTitle}</div>
+              {buyerContact && <div>{buyerContact}</div>}
               {invoice.buyerGstin && (
                 <div style={{ fontWeight: "600", color: "#059669", marginTop: "2px" }}>GSTIN: {invoice.buyerGstin}</div>
               )}
@@ -461,6 +466,7 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
               <div style={{ background: "#f8fafc", padding: "16px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
                 <div style={{ fontSize: "11px", fontWeight: "700", color: "#64748b", textTransform: "uppercase" }}>Customer Information</div>
                 <div style={{ fontSize: "14px", fontWeight: "700", color: "#0f172a", marginTop: "4px" }}>{buyerTitle}</div>
+                {buyerContact && <div style={{ fontSize: "12px", color: "#64748b" }}>{buyerContact}</div>}
                 {invoice.buyerGstin ? (
                   <div style={{ fontSize: "12px", fontWeight: "600", color: "#059669", marginTop: "2px" }}>GSTIN: {invoice.buyerGstin}</div>
                 ) : (
@@ -648,6 +654,7 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
             <div>
               <div style={{ fontSize: "10px", fontWeight: "700", color: "#64748b", textTransform: "uppercase" }}>BILLED TO / RECIPIENT</div>
               <div style={{ fontSize: "13px", fontWeight: "800" }}>{buyerTitle}</div>
+              {buyerContact && <div>{buyerContact}</div>}
               {invoice.buyerGstin ? (
                 <div style={{ fontWeight: "700", color: "#166534" }}>BUYER GSTIN: {invoice.buyerGstin}</div>
               ) : (

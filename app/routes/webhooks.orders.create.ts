@@ -4,7 +4,7 @@ import prisma from "../db.server";
 import { createInvoiceForOrder, normalizeWebhookOrder } from "../services/invoice-builder.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { shop, payload } = await authenticate.webhook(request);
+  const { shop, payload, admin } = await authenticate.webhook(request);
 
   if (!payload || !payload.id) {
     return new Response("Invalid payload", { status: 400 });
@@ -15,6 +15,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return new Response("Invoice will be generated on fulfillment", { status: 200 });
   }
 
-  const result = await createInvoiceForOrder(shop, normalizeWebhookOrder(payload));
+  const result = await createInvoiceForOrder(shop, normalizeWebhookOrder(payload), admin);
   return new Response(result.created ? "Invoice generated" : "Invoice already exists", { status: 200 });
 };

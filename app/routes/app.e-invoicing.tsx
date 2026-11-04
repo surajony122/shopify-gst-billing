@@ -28,12 +28,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const [b2bInvoices, ewayInvoices] = await Promise.all([
     prisma.invoice.findMany({
-      where: { shop, isB2B: true },
+      where: { shop, isB2B: true, status: "ACTIVE" },
       orderBy: { invoiceDate: "desc" },
       take: 30,
     }),
     prisma.invoice.findMany({
-      where: { shop, ewayBillRequired: true },
+      where: { shop, ewayBillRequired: true, status: "ACTIVE" },
       orderBy: { invoiceDate: "desc" },
       take: 30,
     }),

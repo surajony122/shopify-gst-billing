@@ -1,85 +1,82 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { useActionData, useLoaderData, useSubmit, useNavigation } from "@remix-run/react";
+import { useActionData, useLoaderData, useNavigation, useSubmit } from "@remix-run/react";
 import {
   Page,
   Card,
   BlockStack,
-  DataTable,
-  TextField,
-  Select,
+  Box,
   Button,
+  DataTable,
   Banner,
   InlineStack,
+  Modal,
+  Select,
   Text,
+  TextField,
   Badge,
   Tabs,
-  Box,
 } from "@shopify/polaris";
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
+const HSN_FORMAT = /^\d{4,8}$/;
+
+const gidNumber = (gid: string) => gid.split("/").pop() as string;
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, admin } = await authenticate.admin(request);
   const shop = session.shop;
 
-  // 1. Fetch individual product/variant mappings from our DB
-  const catalog = await prisma.hsnCatalog.findMany({
-    where: { shop },
-    orderBy: { productTitle: "asc" },
-  });
+  const [setting, productMappings, collectionMappings] = await Promise.all([
+    prisma.storeSetting.findUnique({ where: { shop } }),
+    prisma.hsnCatalog.findMany({ where: { shop } }),
+    prisma.collectionHsn.findMany({ where: { shop } }),
+  ]);
 
-  // 2. Fetch saved collection HSN mappings
-  const collectionMappings = await prisma.collectionHsn.findMany({
-    where: { shop },
-  });
-
-  // 3. Fetch Shopify Collections via GraphQL
   let shopifyCollections: Array<{ id: string; title: string }> = [];
+  let shopifyProducts: Array<{ id: string; title: string }> = [];
+  let loadFailed = false;
   try {
     const res = await admin.graphql(`
-      query getCollections {
-        collections(first: 50) {
-          nodes {
-            id
-            title
-          }
-        }
+      query getCatalog {
+        collections(first: 100, sortKey: TITLE) { nodes { id title } }
+        products(first: 100, sortKey: TITLE) { nodes { id title } }
       }
     `);
-    const jsonRes = await res.json();
-    shopifyCollections = jsonRes.data?.collections?.nodes || [];
+    const body = (await res.json()) as any;
+    shopifyCollections = body.data?.collections?.nodes || [];
+    shopifyProducts = body.data?.products?.nodes || [];
   } catch (err) {
-    console.error("Error fetching collections:", err);
+    console.error("Error fetching catalog:", err);
+    loadFailed = true;
   }
 
-  // Merge Shopify collections with saved HSN mappings
-  const mergedCollections = shopifyCollections.map((col) => {
-    const numericId = col.id.replace("gid://shopify/Collection/", "");
-    const mapping = collectionMappings.find(
-      (m) => m.shopifyCollectionId === numericId || m.shopifyCollectionId === col.id
-    );
-    return {
-      id: numericId,
-      gid: col.id,
-      title: col.title,
-      hsnCode: mapping?.hsnCode || "999999",
-      gstRate: String(mapping?.gstRate ?? 18),
-    };
-  });
-
   return json({
-    catalog: catalog.map((item) => ({
-      id: item.id,
-      productId: item.shopifyProductId,
-      title: item.productTitle,
-      variantTitle: item.variantTitle || "Default",
-      sku: item.sku || "N/A",
-      hsnCode: item.hsnCode,
-      gstRate: String(item.gstRate),
-    })),
-    collections: mergedCollections,
+    loadFailed,
+    defaultHsnCode: setting?.defaultHsnCode || "999999",
+    defaultGstRate: String(setting?.defaultGstRate ?? 18),
+    collections: shopifyCollections.map((col) => {
+      const id = gidNumber(col.id);
+      const mapping = collectionMappings.find((m) => m.shopifyCollectionId === id);
+      return {
+        id,
+        title: col.title,
+        hsnCode: mapping?.hsnCode || null,
+        gstRate: mapping ? String(mapping.gstRate) : null,
+      };
+    }),
+    products: shopifyProducts.map((product) => {
+      const id = gidNumber(product.id);
+      const mapping = productMappings.find((m) => m.shopifyProductId === id && !m.shopifyVariantId);
+      return {
+        id,
+        title: product.title,
+        hsnCode: mapping?.hsnCode || null,
+        gstRate: mapping ? String(mapping.gstRate) : null,
+      };
+    }),
   });
 };
 
@@ -89,179 +86,194 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const formData = await request.formData();
   const intent = formData.get("intent");
 
-  if (intent === "save_collection_hsn") {
-    const collectionId = formData.get("collectionId") as string;
-    const collectionTitle = formData.get("collectionTitle") as string;
-    const hsnCode = (formData.get("hsnCode") as string).trim();
-    const gstRate = parseFloat(formData.get("gstRate") as string || "18");
+  const hsnCode = ((formData.get("hsnCode") as string) || "").trim();
+  const gstRate = parseFloat(formData.get("gstRate") as string);
+  const title = (formData.get("title") as string) || "";
+  const id = (formData.get("id") as string) || "";
 
-    await prisma.collectionHsn.upsert({
-      where: {
-        shop_shopifyCollectionId: {
-          shop,
-          shopifyCollectionId: collectionId,
-        },
-      },
-      update: {
-        hsnCode,
-        gstRate,
-        collectionTitle,
-      },
-      create: {
-        shop,
-        shopifyCollectionId: collectionId,
-        collectionTitle,
-        hsnCode,
-        gstRate,
-      },
-    });
-
-    return json({
-      success: true,
-      message: `HSN code ${hsnCode} (${gstRate}%) successfully saved for collection "${collectionTitle}"!`,
-    });
+  if (!HSN_FORMAT.test(hsnCode)) {
+    return json({ success: false, message: "HSN or SAC code must be 4 to 8 digits." });
+  }
+  if (!(gstRate >= 0 && gstRate <= 100)) {
+    return json({ success: false, message: "Choose a valid GST rate." });
   }
 
-  if (intent === "update_hsn") {
-    const id = formData.get("id") as string;
-    const hsnCode = formData.get("hsnCode") as string;
-    const gstRate = parseFloat(formData.get("gstRate") as string);
-
-    await prisma.hsnCatalog.update({
-      where: { id },
-      data: {
-        hsnCode: hsnCode.trim(),
-        gstRate,
-      },
-    });
-
-    return json({ success: true, message: "HSN code updated successfully" });
-  }
-
-  if (intent === "bulk_apply") {
-    const defaultHsn = (formData.get("defaultHsn") as string).trim();
-    const defaultRate = parseFloat(formData.get("defaultRate") as string);
-
-    await prisma.hsnCatalog.updateMany({
+  if (intent === "save_default") {
+    await prisma.storeSetting.upsert({
       where: { shop },
-      data: {
-        hsnCode: defaultHsn,
-        gstRate: defaultRate,
-      },
+      update: { defaultHsnCode: hsnCode, defaultGstRate: gstRate },
+      create: { shop, defaultHsnCode: hsnCode, defaultGstRate: gstRate },
     });
-
-    return json({ success: true, message: "Applied default HSN & rate to all catalog items" });
+    return json({ success: true, message: `Store default saved: HSN ${hsnCode} at ${gstRate}%.` });
   }
 
-  return json({ success: false });
+  if (intent === "save_collection_hsn") {
+    await prisma.collectionHsn.upsert({
+      where: { shop_shopifyCollectionId: { shop, shopifyCollectionId: id } },
+      update: { hsnCode, gstRate, collectionTitle: title },
+      create: { shop, shopifyCollectionId: id, collectionTitle: title, hsnCode, gstRate },
+    });
+    return json({ success: true, message: `Saved HSN ${hsnCode} at ${gstRate}% for "${title}".` });
+  }
+
+  if (intent === "save_product_hsn") {
+    // A null variant cannot be matched by the unique index, so look the row up first.
+    const existing = await prisma.hsnCatalog.findFirst({
+      where: { shop, shopifyProductId: id, shopifyVariantId: null },
+    });
+    if (existing) {
+      await prisma.hsnCatalog.update({
+        where: { id: existing.id },
+        data: { hsnCode, gstRate, productTitle: title },
+      });
+    } else {
+      await prisma.hsnCatalog.create({
+        data: { shop, shopifyProductId: id, productTitle: title, hsnCode, gstRate },
+      });
+    }
+    return json({ success: true, message: `Saved HSN ${hsnCode} at ${gstRate}% for "${title}".` });
+  }
+
+  return json({ success: false, message: "Invalid action" });
 };
 
+interface EditTarget {
+  intent: "save_collection_hsn" | "save_product_hsn";
+  id: string;
+  title: string;
+  hsnCode: string;
+  gstRate: string;
+}
+
 export default function HsnCatalogPage() {
-  const { catalog, collections } = useLoaderData<typeof loader>();
+  const { loadFailed, defaultHsnCode, defaultGstRate, collections, products } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
 
   const [selectedTab, setSelectedTab] = useState(0);
-  const [defaultHsn, setDefaultHsn] = useState("999999");
-  const [defaultRate, setDefaultRate] = useState("18");
+  const [defaultHsn, setDefaultHsn] = useState(defaultHsnCode);
+  const [defaultRate, setDefaultRate] = useState(defaultGstRate);
+  const [editing, setEditing] = useState<EditTarget | null>(null);
 
-  const taxSlabOptions = [
-    { label: "0% (Exempt / Nil-Rated Goods)", value: "0" },
-    { label: "5% (Apparel/Footwear ≤ ₹2,500, Food Items)", value: "5" },
-    { label: "18% (Standard Goods, Services & Electronics)", value: "18" },
-    { label: "40% (Luxury & Sin Goods)", value: "40" },
-  ];
+  const rateOptions = (current?: string) => {
+    const options = [
+      { label: "0% (Exempt / Nil-Rated Goods)", value: "0" },
+      { label: "5% (Apparel/Footwear ≤ ₹2,500, Food Items)", value: "5" },
+      { label: "18% (Standard Goods, Services & Electronics)", value: "18" },
+      { label: "40% (Luxury & Sin Goods)", value: "40" },
+    ];
+    // Keep older rates visible so a saved value is never silently shown as something else.
+    return current && !options.some((o) => o.value === current)
+      ? [...options, { label: `${current}% (older rate, please review)`, value: current }]
+      : options;
+  };
 
   const tabs = [
-    { id: "collections-hsn", content: `Collections HSN Mapping (${collections.length} Collections)` },
-    { id: "products-hsn", content: `Product & Variant HSN (${catalog.length} Products)` },
+    { id: "collections-hsn", content: `Collections (${collections.length})` },
+    { id: "products-hsn", content: `Products (${products.length})` },
   ];
 
-  const handleBulkApply = () => {
+  const save = (intent: string, fields: Record<string, string>) => {
     const fd = new FormData();
-    fd.append("intent", "bulk_apply");
-    fd.append("defaultHsn", defaultHsn);
-    fd.append("defaultRate", defaultRate);
+    fd.append("intent", intent);
+    Object.entries(fields).forEach(([key, value]) => fd.append(key, value));
     submit(fd, { method: "post" });
   };
 
-  const handleSaveCollectionHsn = (col: any, hsn: string, rate: string) => {
-    const fd = new FormData();
-    fd.append("intent", "save_collection_hsn");
-    fd.append("collectionId", col.id);
-    fd.append("collectionTitle", col.title);
-    fd.append("hsnCode", hsn);
-    fd.append("gstRate", rate);
-    submit(fd, { method: "post" });
+  const handleSaveEdit = () => {
+    if (!editing) return;
+    save(editing.intent, {
+      id: editing.id,
+      title: editing.title,
+      hsnCode: editing.hsnCode,
+      gstRate: editing.gstRate,
+    });
+    setEditing(null);
   };
 
-  // Collection Rows
-  const collectionRows = collections.map((col) => [
-    <Text as="span" fontWeight="bold">{col.title}</Text>,
-    <Badge tone="info">{col.hsnCode}</Badge>,
-    <Badge tone="success">{`${col.gstRate}% GST`}</Badge>,
-    <Button
-      size="micro"
-      variant="primary"
-      onClick={() => {
-        const newHsn = prompt(`Enter 6 or 8-digit HSN code for collection "${col.title}":`, col.hsnCode);
-        if (newHsn && newHsn.trim() !== "") {
-          const newRate = prompt(`Enter GST Tax Slab rate (0, 5, 12, 18, 28):`, col.gstRate) || "18";
-          handleSaveCollectionHsn(col, newHsn.trim(), newRate.trim());
+  const rows = (items: typeof products, intent: EditTarget["intent"], fallbackLabel: string) =>
+    items.map((item) => [
+      <Text as="span" fontWeight="bold">{item.title}</Text>,
+      item.hsnCode ? <Badge tone="info">{item.hsnCode}</Badge> : <Text as="span" tone="subdued">{fallbackLabel}</Text>,
+      item.gstRate ? `${item.gstRate}%` : <Text as="span" tone="subdued">{fallbackLabel}</Text>,
+      <Button
+        size="micro"
+        variant="primary"
+        onClick={() =>
+          setEditing({
+            intent,
+            id: item.id,
+            title: item.title,
+            hsnCode: item.hsnCode || "",
+            gstRate: item.gstRate || defaultRate,
+          })
         }
-      }}
-    >
-      Edit HSN & Slab
-    </Button>,
-  ]);
-
-  // Product Rows
-  const productRows = catalog.map((item) => [
-    <BlockStack gap="050">
-      <Text as="span" fontWeight="bold">{item.title}</Text>
-      <Text as="span" variant="bodyXs" tone="subdued">SKU: {item.sku} | Var: {item.variantTitle}</Text>
-    </BlockStack>,
-    <Badge tone="info">{item.hsnCode}</Badge>,
-    `${item.gstRate}%`,
-    <Button
-      size="micro"
-      onClick={() => {
-        const newHsn = prompt("Enter new 6/8-digit HSN code:", item.hsnCode);
-        if (newHsn && newHsn !== item.hsnCode) {
-          const fd = new FormData();
-          fd.append("intent", "update_hsn");
-          fd.append("id", item.id);
-          fd.append("hsnCode", newHsn);
-          fd.append("gstRate", item.gstRate);
-          submit(fd, { method: "post" });
-        }
-      }}
-    >
-      Edit
-    </Button>,
-  ]);
+      >
+        Edit
+      </Button>,
+    ]);
 
   return (
     <Page
       title="HSN Codes & Tax Slabs"
-      subtitle="Set HSN codes and GST tax slabs by Collection or per Product/Variant"
+      subtitle="Each invoice line uses the product's code, then its collection's code, then the store default"
     >
+      <Modal
+        open={Boolean(editing)}
+        onClose={() => setEditing(null)}
+        title={`HSN and GST rate: ${editing?.title || ""}`}
+        primaryAction={{ content: "Save", onAction: handleSaveEdit }}
+        secondaryActions={[{ content: "Cancel", onAction: () => setEditing(null) }]}
+      >
+        <Modal.Section>
+          <BlockStack gap="300">
+            <TextField
+              label="HSN or SAC code"
+              helpText="4 to 8 digits"
+              value={editing?.hsnCode || ""}
+              onChange={(value) => editing && setEditing({ ...editing, hsnCode: value })}
+              autoComplete="off"
+            />
+            <Select
+              label="GST rate"
+              options={rateOptions(editing?.gstRate)}
+              value={editing?.gstRate}
+              onChange={(value) => editing && setEditing({ ...editing, gstRate: value })}
+            />
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
+
       <BlockStack gap="500">
-        {actionData?.success && (
-          <Banner tone="success" onDismiss={() => {}}>
-            <p>{(actionData as any).message}</p>
+        {actionData && (
+          <Banner tone={actionData.success ? "success" : "critical"} onDismiss={() => {}}>
+            <p>{actionData.message}</p>
           </Banner>
         )}
 
-        {/* Global Bulk Setup */}
+        {loadFailed && (
+          <Banner tone="critical">
+            <p>Could not load your products and collections from Shopify. Reload the page to try again.</p>
+          </Banner>
+        )}
+
+        {defaultHsnCode === "999999" && (
+          <Banner tone="warning" title="Set your real HSN codes">
+            <p>
+              999999 is only a placeholder. Set the store default below and add codes for your products
+              or collections, then regenerate any invoices that used the placeholder.
+            </p>
+          </Banner>
+        )}
+
         <Card>
           <BlockStack gap="400">
-            <Text as="h2" variant="headingSm">Store-wide Default Tax Slab</Text>
+            <Text as="h2" variant="headingSm">Store-wide Default</Text>
             <Text as="p" tone="subdued">
-              If a product or collection does not have an individual HSN code assigned, this default tax slab will apply:
+              Used for any product that has no code of its own and is not in a mapped collection.
             </Text>
-            <InlineStack gap="300" align="start">
+            <InlineStack gap="300" align="start" blockAlign="end">
               <TextField
                 label="Default HSN Code"
                 value={defaultHsn}
@@ -269,55 +281,46 @@ export default function HsnCatalogPage() {
                 autoComplete="off"
               />
               <Select
-                label="Default GST Tax Slab"
-                options={taxSlabOptions}
+                label="Default GST Rate"
+                options={rateOptions(defaultRate)}
                 value={defaultRate}
                 onChange={setDefaultRate}
               />
-              <div style={{ marginTop: "24px" }}>
-                <Button variant="primary" onClick={handleBulkApply} loading={navigation.state === "submitting"}>
-                  Apply to All
-                </Button>
-              </div>
+              <Button
+                variant="primary"
+                onClick={() => save("save_default", { hsnCode: defaultHsn, gstRate: defaultRate })}
+                loading={navigation.state === "submitting"}
+              >
+                Save Default
+              </Button>
             </InlineStack>
           </BlockStack>
         </Card>
 
-        {/* Tabs for Collection-Wise vs Product-Wise */}
         <Card padding="0">
           <Tabs tabs={tabs} selected={selectedTab} onSelect={setSelectedTab}>
             {selectedTab === 0 ? (
-              <Box padding="0">
-                {collections.length === 0 ? (
-                  <Box padding="600">
-                    <Text as="p" alignment="center" tone="subdued">
-                      No Shopify Collections found for this store.
-                    </Text>
-                  </Box>
-                ) : (
-                  <DataTable
-                    columnContentTypes={["text", "text", "text", "text"]}
-                    headings={["Shopify Collection", "Assigned HSN Code", "GST Tax Slab", "Action"]}
-                    rows={collectionRows}
-                  />
-                )}
+              collections.length === 0 ? (
+                <Box padding="600">
+                  <Text as="p" alignment="center" tone="subdued">No Shopify collections found for this store.</Text>
+                </Box>
+              ) : (
+                <DataTable
+                  columnContentTypes={["text", "text", "text", "text"]}
+                  headings={["Collection", "HSN Code", "GST Rate", "Action"]}
+                  rows={rows(collections, "save_collection_hsn", "Store default")}
+                />
+              )
+            ) : products.length === 0 ? (
+              <Box padding="600">
+                <Text as="p" alignment="center" tone="subdued">No Shopify products found for this store.</Text>
               </Box>
             ) : (
-              <Box padding="0">
-                {catalog.length === 0 ? (
-                  <Box padding="600">
-                    <Text as="p" alignment="center" tone="subdued">
-                      No individual product overrides yet. Collection mappings or the default store HSN will be used.
-                    </Text>
-                  </Box>
-                ) : (
-                  <DataTable
-                    columnContentTypes={["text", "text", "text", "text"]}
-                    headings={["Product & SKU", "HSN / SAC Code", "GST Tax Slab", "Action"]}
-                    rows={productRows}
-                  />
-                )}
-              </Box>
+              <DataTable
+                columnContentTypes={["text", "text", "text", "text"]}
+                headings={["Product", "HSN Code", "GST Rate", "Action"]}
+                rows={rows(products, "save_product_hsn", "Collection or default")}
+              />
             )}
           </Tabs>
         </Card>

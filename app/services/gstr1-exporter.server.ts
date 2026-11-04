@@ -162,21 +162,22 @@ function hsnSummary(invoices: GSTR1Invoice[], creditNotes: GSTR1CreditNote[], b2
   }));
 }
 
-function documentSeries(numbers: string[]) {
+function documentSeries(numbers: string[], cancelled: string[] = []) {
   const series = new Map<string, string[]>();
-  for (const number of numbers) {
+  for (const number of [...numbers, ...cancelled]) {
     const prefix = number.replace(/\d+$/, "");
     series.set(prefix, [...(series.get(prefix) || []), number]);
   }
   return Array.from(series.values()).map((docs, index) => {
     const sorted = [...docs].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const cancelCount = sorted.filter((number) => cancelled.includes(number)).length;
     return {
       num: index + 1,
       from: sorted[0],
       to: sorted[sorted.length - 1],
       totnum: sorted.length,
-      cancel: 0,
-      net_issue: sorted.length,
+      cancel: cancelCount,
+      net_issue: sorted.length - cancelCount,
     };
   });
 }
@@ -208,7 +209,8 @@ export function buildGSTR1Json(
   creditNotes: GSTR1CreditNote[],
   gstin: string,
   month: number,
-  year: number
+  year: number,
+  cancelledNumbers: string[] = []
 ) {
   const b2bByBuyer = new Map<string, GSTR1Invoice[]>();
   invoices.filter(isB2B).forEach((inv) => {
@@ -293,7 +295,7 @@ export function buildGSTR1Json(
     },
     doc_issue: {
       doc_det: [
-        { doc_num: 1, doc_typ: "Invoices for outward supply", docs: documentSeries(invoices.map((i) => i.invoiceNumber)) },
+        { doc_num: 1, doc_typ: "Invoices for outward supply", docs: documentSeries(invoices.map((i) => i.invoiceNumber), cancelledNumbers) },
         { doc_num: 5, doc_typ: "Credit Note", docs: documentSeries(creditNotes.map((c) => c.creditNoteNumber)) },
       ].filter((entry) => entry.docs.length > 0),
     },
@@ -320,7 +322,11 @@ function hsnSheet(rows: HsnRow[]) {
 /**
  * Generate CA-Ready GSTR-1 Multi-Sheet Excel Workbook
  */
-export function generateGSTR1Workbook(invoices: GSTR1Invoice[], creditNotes: GSTR1CreditNote[]): Buffer {
+export function generateGSTR1Workbook(
+  invoices: GSTR1Invoice[],
+  creditNotes: GSTR1CreditNote[],
+  cancelledNumbers: string[] = []
+): Buffer {
   const wb = XLSX.utils.book_new();
 
   // 1. Sheet: B2B (one row per invoice and tax rate)
@@ -396,7 +402,7 @@ export function generateGSTR1Workbook(invoices: GSTR1Invoice[], creditNotes: GST
 
   // 6. Sheet: Documents issued
   const docRows = [
-    ...documentSeries(invoices.map((i) => i.invoiceNumber)).map((d) => ({ nature: "Invoices for outward supply", ...d })),
+    ...documentSeries(invoices.map((i) => i.invoiceNumber), cancelledNumbers).map((d) => ({ nature: "Invoices for outward supply", ...d })),
     ...documentSeries(creditNotes.map((c) => c.creditNoteNumber)).map((d) => ({ nature: "Credit Note", ...d })),
   ].map((d) => ({
     "Nature of Document": d.nature,

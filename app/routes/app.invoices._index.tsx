@@ -47,7 +47,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
       let syncedCount = 0;
       for (const order of orders) {
-        const result = await createInvoiceForOrder(shop, order);
+        const result = await createInvoiceForOrder(shop, order, admin);
         if (result.created) syncedCount += 1;
       }
 
@@ -75,11 +75,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       const result = await regenerateInvoices(
         shop,
         (ids) => fetchOrdersByIds(admin, ids),
-        await isDevelopmentStore(admin)
+        await isDevelopmentStore(admin),
+        new Date(),
+        admin
       );
 
       const notes = [
         `Regenerated ${result.regenerated} invoices from current Shopify data.`,
+        result.markedCancelled > 0 && `Marked ${result.markedCancelled} as cancelled because their orders were cancelled.`,
         result.skippedCreditNotes > 0 && `Skipped ${result.skippedCreditNotes} with credit notes.`,
         result.skippedEarlierMonths > 0 && `Skipped ${result.skippedEarlierMonths} from earlier months, which may already be sent or filed.`,
         result.skippedMissingOrders > 0 && `Skipped ${result.skippedMissingOrders} whose orders no longer exist in Shopify.`,
@@ -149,6 +152,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       orderDate: new Date(inv.orderDate).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
       buyerEmail: inv.buyerEmail,
       buyerPhone: inv.buyerPhone,
+      status: inv.status,
       customer: inv.buyerTradeName || "Retail Customer",
       isB2B: inv.isB2B,
       buyerGstin: inv.buyerGstin || "N/A",
@@ -257,6 +261,7 @@ export default function InvoicesListPage() {
         totalTaxFormatted,
         grandTotalFormatted,
         ewayBillRequired,
+        status,
       },
       index
     ) => (
@@ -274,7 +279,8 @@ export default function InvoicesListPage() {
               </Text>
             </Link>
             <Text as="span" variant="bodySm" tone="subdued">{invoiceNumber}</Text>
-            {ewayBillRequired && <Badge tone="critical">e-Way Bill</Badge>}
+            {status === "CANCELLED" && <Badge tone="critical">Cancelled</Badge>}
+            {status !== "CANCELLED" && ewayBillRequired && <Badge tone="warning">e-Way Bill</Badge>}
           </BlockStack>
         </IndexTable.Cell>
         <IndexTable.Cell>

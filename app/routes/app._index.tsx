@@ -30,12 +30,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     take: 5,
   });
 
-  const totalInvoices = await prisma.invoice.count({ where: { shop } });
-  const b2bInvoices = await prisma.invoice.count({ where: { shop, isB2B: true } });
+  const totalInvoices = await prisma.invoice.count({ where: { shop, status: "ACTIVE" } });
+  const b2bInvoices = await prisma.invoice.count({ where: { shop, isB2B: true, status: "ACTIVE" } });
 
   // Calculate aggregates
   const aggregates = await prisma.invoice.aggregate({
-    where: { shop },
+    where: { shop, status: "ACTIVE" },
     _sum: {
       subtotalTaxable: true,
       cgstTotal: true,

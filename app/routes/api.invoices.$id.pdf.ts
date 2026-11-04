@@ -24,6 +24,11 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
     where: { shop: invoice.shop },
   });
 
+  const shipTo = invoice.shippingAddress as any;
+  // A saved "TAX INVOICE" title must not appear on a composition dealer's Bill of Supply.
+  const isComposition = setting?.taxScheme === "composition";
+  const baseTitle = isComposition ? "BILL OF SUPPLY" : setting?.invoiceTitle || "TAX INVOICE";
+
   try {
     const pdfBuffer = await generateGSTInvoicePDF({
       invoiceNumber: invoice.invoiceNumber,
@@ -35,7 +40,7 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
         tradeName: setting?.tradeName || "",
         gstin: setting?.gstin || "N/A",
         pan: setting?.panNumber || "",
-        address: setting?.addressLine1 || "Warehouse Address",
+        address: [setting?.addressLine1, setting?.addressLine2].filter(Boolean).join(", "),
         city: setting?.city || "City",
         state: setting?.state || "State",
         stateCode: setting?.stateCode || "27",
@@ -47,7 +52,9 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
         legalName: invoice.buyerTradeName || "Retail Customer (B2C)",
         tradeName: invoice.buyerTradeName || "",
         gstin: invoice.buyerGstin || undefined,
-        address: (invoice.shippingAddress as any)?.address1 || "Customer Address",
+        address: [shipTo?.address1, shipTo?.address2, shipTo?.city, shipTo?.zip].filter(Boolean).join(", "),
+        phone: invoice.buyerPhone || undefined,
+        email: invoice.buyerEmail || undefined,
         state: cleanStateName(invoice.placeOfSupplyState),
         stateCode: invoice.placeOfSupplyCode,
       },
@@ -84,8 +91,10 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
       taxScheme: setting?.taxScheme || "regular",
       ewayBillRequired: (invoice as any).ewayBillRequired || false,
       customization: {
-        invoiceTitle: setting?.invoiceTitle || undefined,
-        invoiceSubtitle: setting?.invoiceSubtitle || undefined,
+        invoiceTitle: `${invoice.status === "CANCELLED" ? "CANCELLED - " : ""}${baseTitle}`,
+        invoiceSubtitle: isComposition
+          ? "Composition taxable person, not eligible to collect tax on supplies"
+          : setting?.invoiceSubtitle || undefined,
         showBankDetails: setting?.showBankDetails ?? true,
         showTerms: setting?.showTerms ?? true,
         signatureLabel: setting?.signatureLabel || undefined,

@@ -93,6 +93,8 @@ model StoreSetting {
   ewayBillNoticeThreshold  Float   @default(50000.0)
 
   // HSN & Tiered Tax Rules
+  defaultHsnCode           String  @default("999999")
+  defaultGstRate           Float   @default(18.0)
   apparelFootwearTierRule  Boolean @default(true) // <= 1000 -> 5%, > 1000 -> 12%
   hsnLengthRequired        Int     @default(6)
 
@@ -132,6 +134,8 @@ model Invoice {
   financialYear        String            // e.g. "2026-27"
   orderDate            DateTime
   invoiceDate          DateTime          @default(now())
+  status               String            @default("ACTIVE") // "ACTIVE" or "CANCELLED"
+  cancelledAt          DateTime?
   
   // Customer & Place of Supply
   isB2B                Boolean           @default(false)

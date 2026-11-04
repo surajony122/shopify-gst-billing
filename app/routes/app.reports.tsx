@@ -22,12 +22,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  const totalInvoices = await prisma.invoice.count({ where: { shop } });
-  const b2bCount = await prisma.invoice.count({ where: { shop, isB2B: true } });
-  const b2cCount = await prisma.invoice.count({ where: { shop, isB2B: false } });
+  const totalInvoices = await prisma.invoice.count({ where: { shop, status: "ACTIVE" } });
+  const b2bCount = await prisma.invoice.count({ where: { shop, isB2B: true, status: "ACTIVE" } });
+  const b2cCount = await prisma.invoice.count({ where: { shop, isB2B: false, status: "ACTIVE" } });
 
   const agg = await prisma.invoice.aggregate({
-    where: { shop },
+    where: { shop, status: "ACTIVE" },
     _sum: {
       subtotalTaxable: true,
       cgstTotal: true,
