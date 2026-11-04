@@ -1,4 +1,4 @@
-# GST Invoicing & Compliance App for Shopify India 🇮🇳
+# WOM GST Invoice India
 
 A complete, production-grade **Goods and Services Tax (GST)** Invoicing, e-Invoicing (IRN), e-Way Bill, and GSTR-1 Filing application built for Indian Shopify merchants.
 

@@ -29,7 +29,7 @@ export default function LoginPage() {
         <Card>
           <Form method="post">
             <FormLayout>
-              <Text as="h1" variant="headingMd">Log in to GST Invoicing</Text>
+              <Text as="h1" variant="headingMd">Log in to WOM GST Invoice India</Text>
               <TextField
                 name="shop"
                 label="Store address"

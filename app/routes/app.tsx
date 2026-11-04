@@ -47,7 +47,7 @@ export default function App() {
           <div className="ong-brand">
             <span className="ong-brand-mark"><AppIcon name="receipt" size={20} /></span>
             <div>
-              <div className="ong-brand-name">GST Invoicing</div>
+              <div className="ong-brand-name">WOM GST Invoice India</div>
               <div className="ong-brand-sub">{shop.replace(".myshopify.com", "")}</div>
             </div>
           </div>

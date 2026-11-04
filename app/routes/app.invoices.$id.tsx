@@ -67,7 +67,7 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
       buyerPhone: invoice.buyerPhone,
       paymentMode: invoice.paymentMode,
       shippingAddress: invoice.shippingAddress,
-      buyerGstin: invoice.buyerGstin || "N/A",
+      buyerGstin: invoice.buyerGstin,
       buyerTradeName: invoice.buyerTradeName || "Retail Customer (B2C)",
       placeOfSupplyState: cleanStateName(invoice.placeOfSupplyState),
       placeOfSupplyCode: invoice.placeOfSupplyCode,

@@ -161,7 +161,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       shippingAddress: inv.shippingAddress,
       customer: inv.buyerTradeName || "Retail Customer",
       isB2B: inv.isB2B,
-      buyerGstin: inv.buyerGstin || "N/A",
+      buyerGstin: inv.buyerGstin,
       placeOfSupplyState: cleanStateName(inv.placeOfSupplyState),
       placeOfSupplyCode: inv.placeOfSupplyCode,
       placeOfSupply: `${inv.placeOfSupplyCode} - ${cleanStateName(inv.placeOfSupplyState)}`,

@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "6caab6fa2a78cfa57f8047383296d1b2"
-name = "GST Invoicing & Compliance Ind"
+name = "WOM GST Invoice India"
 application_url = "https://shopify-gst-billing.onrender.com"
 embedded = true
 
