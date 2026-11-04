@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: shopify-gst-billing
+    name: wom-gst-invoice
     runtime: node
     plan: free
     region: singapore # Closest to India for lowest latency
