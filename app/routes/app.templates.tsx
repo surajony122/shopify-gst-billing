@@ -286,6 +286,9 @@ export default function TemplateEditorPage() {
                   value={form.invoiceTemplate}
                   onChange={set("invoiceTemplate")}
                 />
+                {form.invoiceTemplate === "minimalist" && (
+                  <Text as="p" variant="bodySm" tone="subdued">Minimalist is always black and white, so brand color doesn't change it.</Text>
+                )}
                 {!isThermal && (
                   <>
                     <InlineGrid columns="1fr auto" gap="200" alignItems="end">

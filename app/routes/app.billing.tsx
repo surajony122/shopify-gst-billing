@@ -9,10 +9,17 @@ import { getPlanUsage, savePlan } from "../services/plans.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, billing, admin } = await authenticate.admin(request);
-  const check = await billing.check({ plans: [GROWTH_PLAN, PRO_PLAN], isTest: await isDevelopmentStore(admin) });
-  // Also corrects the saved plan right after returning from Shopify's approval page.
-  await savePlan(session.shop, check.appSubscriptions[0]?.name || "Free");
-  return json(await getPlanUsage(session.shop));
+  let billingUnavailable = false;
+  try {
+    const check = await billing.check({ plans: [GROWTH_PLAN, PRO_PLAN], isTest: await isDevelopmentStore(admin) });
+    // Also corrects the saved plan right after returning from Shopify's approval page.
+    await savePlan(session.shop, check.appSubscriptions[0]?.name || "Free");
+  } catch (error) {
+    // Shopify refuses billing calls until the app is set to public distribution.
+    console.error("Billing check failed", error);
+    billingUnavailable = true;
+  }
+  return json({ ...(await getPlanUsage(session.shop)), billingUnavailable });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -22,11 +29,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (plan === GROWTH_PLAN || plan === PRO_PLAN) {
     // Redirects to Shopify's approval page. Replacing a plan cancels the old one.
-    return billing.request({
-      plan,
-      isTest,
-      returnUrl: `https://${session.shop}/admin/apps/${process.env.SHOPIFY_API_KEY}/app/billing`,
-    });
+    try {
+      return await billing.request({
+        plan,
+        isTest,
+        returnUrl: `https://${session.shop}/admin/apps/${process.env.SHOPIFY_API_KEY}/app/billing`,
+      });
+    } catch (error) {
+      if (error instanceof Response) throw error; // The redirect to Shopify's approval page
+      console.error("Billing request failed", error);
+      return json({ message: UNAVAILABLE_MESSAGE });
+    }
   }
 
   if (plan === "Free") {
@@ -41,6 +54,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   return json({ message: "Choose a valid plan." });
 };
 
+const UNAVAILABLE_MESSAGE =
+  "Shopify couldn't start billing. Set this app to public distribution in the Partner dashboard, then try again.";
+
 const PLANS = [
   { name: "Free", price: "$0", features: ["25 invoices a month", "Automatic GST invoices", "Standard template", "Credit notes and HSN codes"] },
   { name: "Growth", price: "$6", features: ["500 invoices a month", "All templates", "Logo and signature", "GSTR-1 Excel and JSON files"] },
@@ -48,7 +64,7 @@ const PLANS = [
 ];
 
 export default function BillingPage() {
-  const { plan, used, limit } = useLoaderData<typeof loader>();
+  const { plan, used, limit, billingUnavailable } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -67,6 +83,7 @@ export default function BillingPage() {
       subtitle="Paid plans include a 7-day free trial"
     >
       <BlockStack gap="400">
+        {billingUnavailable && <Banner tone="warning"><p>{UNAVAILABLE_MESSAGE}</p></Banner>}
         {actionData?.message && <Banner tone="info"><p>{actionData.message}</p></Banner>}
 
         <Card>

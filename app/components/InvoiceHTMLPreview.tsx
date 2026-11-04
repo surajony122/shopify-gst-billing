@@ -595,6 +595,8 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
   // 4. STANDARD TRADITIONAL B2B TEMPLATE (Default Rule 46 Statutory)
 
   // 4. STANDARD TEMPLATE (same layout as the standard PDF)
+  const [red, green, blue] = [1, 3, 5].map((i) => parseInt(brandColor.slice(i, i + 2), 16) || 0);
+  const readableText = 0.299 * red + 0.587 * green + 0.114 * blue > 160 ? "#1e1e1e" : "#fff";
   const ship = (invoice.shippingAddress || {}) as any;
   const buyerAddress = [ship.address1, ship.address2, ship.city, ship.zip, ship.country].filter(Boolean).join(", ");
   const money = (value: number) => value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -604,7 +606,7 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
   const goodsAmount = goodsItems.reduce((sum, item) => sum + item.totalAmount, 0);
   const shippingAmount = shippingItems.reduce((sum, item) => sum + item.totalAmount, 0);
   const cell: React.CSSProperties = { padding: "6px 7px", borderRight: "1px solid #d4d4d4", verticalAlign: "top", textAlign: "right" };
-  const headCell: React.CSSProperties = { ...cell, fontWeight: 700, fontSize: "10px", background: "#f1eee7", borderBottom: "1px solid #d4d4d4" };
+  const headCell: React.CSSProperties = { ...cell, fontWeight: 700, fontSize: "10px", background: `color-mix(in srgb, ${brandColor} 12%, #fff)`, borderBottom: "1px solid #d4d4d4" };
   const summaryRow = (label: string, value: string) => (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: "1px solid #e5e5e5" }}>
       <span>{label}</span><span>{value}</span>
@@ -623,7 +625,7 @@ export function InvoiceHTMLPreview({ invoice, seller, template = "standard_b2b" 
           </div>
         )}
         <div style={{ border: "1.5px solid #222" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "9px 12px", background: "#f1eee7", borderBottom: "1.5px solid #222", fontWeight: 700, fontSize: "14px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "9px 12px", background: brandColor, color: readableText, borderBottom: "1.5px solid #222", fontWeight: 700, fontSize: "14px" }}>
             <span>{displayTitle} # {invoice.invoiceNumber}</span>
             <span>Date : {invoice.date}</span>
           </div>

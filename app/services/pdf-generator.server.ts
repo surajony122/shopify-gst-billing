@@ -77,6 +77,10 @@ const inr = (value: number) =>
 
 const SHIPPING_SAC = "996812";
 
+/** White text on dark colors, near-black on light ones. */
+const readableOn = ([r, g, b]: [number, number, number]): [number, number, number] =>
+  0.299 * r + 0.587 * g + 0.114 * b > 160 ? [30, 30, 30] : [255, 255, 255];
+
 /** The default A4 format: a single bordered sheet, as commonly used for Indian tax invoices. */
 async function generateStandardPDF(data: InvoicePDFData): Promise<Buffer> {
   const doc: any = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
@@ -85,7 +89,9 @@ async function generateStandardPDF(data: InvoicePDFData): Promise<Buffer> {
   const left = 14;
   const right = pageWidth - 14;
   const pad = 3;
-  const barColor: [number, number, number] = [241, 238, 231];
+  const brandRgb = hexToRgb(data.brandColor || "#212B36");
+  // A pale tint of the brand color, so dark text stays readable on table headings.
+  const barColor = brandRgb.map((c) => Math.round(c * 0.12 + 255 * 0.88)) as [number, number, number];
   const isComposition = data.taxScheme === "composition";
 
   let y = 8;
@@ -114,9 +120,10 @@ async function generateStandardPDF(data: InvoicePDFData): Promise<Buffer> {
 
   // Title bar
   const title = data.customization?.invoiceTitle || (isComposition ? "BILL OF SUPPLY" : "TAX INVOICE");
-  doc.setFillColor(...barColor);
+  doc.setFillColor(...brandRgb);
   doc.rect(left, y, right - left, 9, "F");
   setText(10.5, "bold", 30);
+  doc.setTextColor(...readableOn(brandRgb));
   doc.text(`${title} # ${data.invoiceNumber}`, left + pad, y + 6);
   doc.text(`Date : ${data.invoiceDate}`, right - pad, y + 6, { align: "right" });
   y += 9;
