@@ -83,7 +83,7 @@ export default function HelpPage() {
           <Text as="p">Once an invoice exists, the tax on it counts as payable. If money goes back to the customer, a <strong>credit note</strong> is the document that reduces that tax. Without one, you would keep paying GST on sales you refunded.</Text>
           <List>
             <List.Item><strong>Refund in Shopify:</strong> the app creates a credit note for the refunded amount automatically. There is nothing for you to do.</List.Item>
-            <List.Item><strong>Order cancelled, invoice from this month:</strong> the invoice is marked Cancelled and left out of your totals and GSTR-1.</List.Item>
+            <List.Item><strong>Order cancelled, invoice from this month:</strong> the invoice is marked Cancelled and left out of your totals and GSTR-1. If the refund was recorded first, a credit note reverses it instead, and the invoice shows that the order was cancelled.</List.Item>
             <List.Item><strong>Order cancelled, invoice from an earlier month:</strong> the invoice stays on record, because it may already be filed, and a credit note reverses it.</List.Item>
             <List.Item><strong>Order cancelled before an invoice exists:</strong> no invoice is created.</List.Item>
           </List>

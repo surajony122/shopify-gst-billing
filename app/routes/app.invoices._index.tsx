@@ -160,6 +160,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       paymentMode: inv.paymentMode,
       shippingAddress: inv.shippingAddress,
       customer: inv.buyerTradeName || "Retail Customer",
+      buyerTradeName: inv.buyerTradeName,
+      cancelledAt: inv.cancelledAt,
       isB2B: inv.isB2B,
       buyerGstin: inv.buyerGstin,
       placeOfSupplyState: cleanStateName(inv.placeOfSupplyState),
@@ -430,6 +432,8 @@ export default function InvoicesListPage() {
                             <span className="ong-sub">{`Issued ${inv.date}`}</span>
                             {inv.status === "CANCELLED" ? (
                               <span className="ong-status bad"><AppIcon name="x-circle" size={13} />Cancelled</span>
+                            ) : inv.cancelledAt ? (
+                              <span className="ong-status bad"><AppIcon name="x-circle" size={13} />Order cancelled, credit note issued</span>
                             ) : inv.ewayBillRequired ? (
                               <span className="ong-status warn"><AppIcon name="truck" size={13} />e-Way Bill needed</span>
                             ) : (

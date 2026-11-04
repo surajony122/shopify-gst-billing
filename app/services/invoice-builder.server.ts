@@ -642,7 +642,11 @@ export async function cancelInvoiceForOrder(shop: string, orderId: string, now: 
       include: { _count: { select: { creditNotes: true } } },
     });
     if (current.status === "CANCELLED") return "already" as const;
-    if (current.grandTotal !== 0 && (current._count.creditNotes > 0 || current.invoiceDate < start)) return "keep" as const;
+    if (current.grandTotal !== 0 && (current._count.creditNotes > 0 || current.invoiceDate < start)) {
+      // The invoice stays in the return and a credit note reverses it, but the order is still cancelled.
+      await tx.invoice.update({ where: { id: invoice.id }, data: { cancelledAt: now } });
+      return "keep" as const;
+    }
     await tx.invoice.update({ where: { id: invoice.id }, data: { status: "CANCELLED", cancelledAt: now } });
     return "done" as const;
   });

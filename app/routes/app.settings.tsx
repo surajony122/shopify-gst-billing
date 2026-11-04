@@ -22,7 +22,7 @@ import { useEffect, useMemo, useState } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { InfoTip } from "../components/InfoTip";
-import { getStateCodeFromGSTIN, GST_STATE_CODES } from "../services/gst-engine";
+import { getStateCodeFromGSTIN, validateGSTINFormat, GST_STATE_CODES } from "../services/gst-engine";
 
 const PAGE_SIZE = 50;
 const TABS = ["business", "tax", "hsn"];
@@ -171,6 +171,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
 
     const gstin = text("gstin").toUpperCase();
+    if (gstin && !validateGSTINFormat(gstin)) {
+      return json({ success: false, message: "That GSTIN is not valid. A GSTIN has 15 characters, like 27AABCU9603R1ZM, and starts with a real state code." });
+    }
     const stateCode = getStateCodeFromGSTIN(gstin) || text("stateCode") || "27";
     const shipping = text("shipping");
     const data = {

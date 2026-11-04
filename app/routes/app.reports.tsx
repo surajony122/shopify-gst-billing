@@ -31,13 +31,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { start, end } = getReturnPeriodRange(month, year);
   const period = { shop, status: "ACTIVE", invoiceDate: { gte: start, lt: end } };
 
-  const [setting, b2bCount, b2cCount, agg] = await Promise.all([
+  const [setting, b2bCount, b2cCount, agg, credits] = await Promise.all([
     prisma.storeSetting.findUnique({ where: { shop } }),
     prisma.invoice.count({ where: { ...period, isB2B: true } }),
     prisma.invoice.count({ where: { ...period, isB2B: false } }),
     prisma.invoice.aggregate({
       where: period,
       _sum: { subtotalTaxable: true, cgstTotal: true, sgstTotal: true, igstTotal: true },
+    }),
+    // Same credit notes as the return file, so these totals match it.
+    prisma.creditNote.aggregate({
+      where: { shop, date: { gte: start, lt: end }, invoice: { status: "ACTIVE" } },
+      _sum: { taxableAdjusted: true, cgstAdjusted: true, sgstAdjusted: true, igstAdjusted: true },
     }),
   ]);
 
@@ -49,8 +54,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     hasGstin: Boolean(setting?.gstin),
     b2bCount,
     b2cCount,
-    taxableSales: agg._sum.subtotalTaxable || 0,
-    totalTax: (agg._sum.cgstTotal || 0) + (agg._sum.sgstTotal || 0) + (agg._sum.igstTotal || 0),
+    taxableSales: Number(((agg._sum.subtotalTaxable || 0) - (credits._sum.taxableAdjusted || 0)).toFixed(2)),
+    totalTax: Number(
+      ((agg._sum.cgstTotal || 0) + (agg._sum.sgstTotal || 0) + (agg._sum.igstTotal || 0) -
+        ((credits._sum.cgstAdjusted || 0) + (credits._sum.sgstAdjusted || 0) + (credits._sum.igstAdjusted || 0))).toFixed(2)
+    ),
   });
 };
 
@@ -137,13 +145,13 @@ export default function ReportsPage() {
           </Card>
           <Card>
             <BlockStack gap="200">
-              <Text as="h3" variant="headingSm" tone="subdued">Taxable Sales</Text>
+              <Text as="h3" variant="headingSm" tone="subdued">Taxable Sales (after credit notes)</Text>
               <Text as="p" variant="headingLg" fontWeight="bold">{`₹${data.taxableSales.toLocaleString("en-IN")}`}</Text>
             </BlockStack>
           </Card>
           <Card>
             <BlockStack gap="200">
-              <Text as="h3" variant="headingSm" tone="subdued">GST on Sales</Text>
+              <Text as="h3" variant="headingSm" tone="subdued">GST on Sales (after credit notes)</Text>
               <Text as="p" variant="headingLg" fontWeight="bold">{`₹${data.totalTax.toLocaleString("en-IN")}`}</Text>
             </BlockStack>
           </Card>
