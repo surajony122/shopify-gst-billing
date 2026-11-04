@@ -21,6 +21,7 @@ import prisma from "../db.server";
 import { InvoiceHTMLPreview } from "../components/InvoiceHTMLPreview";
 import { cleanStateName } from "../services/gst-engine";
 import { downloadSecureFile, openSecureFile } from "../utils/secure-file";
+import { InfoTip } from "../components/InfoTip";
 
 export const loader = async ({ params, request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -64,6 +65,8 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
       status: invoice.status,
       buyerEmail: invoice.buyerEmail,
       buyerPhone: invoice.buyerPhone,
+      paymentMode: invoice.paymentMode,
+      shippingAddress: invoice.shippingAddress,
       buyerGstin: invoice.buyerGstin || "N/A",
       buyerTradeName: invoice.buyerTradeName || "Retail Customer (B2C)",
       placeOfSupplyState: cleanStateName(invoice.placeOfSupplyState),
@@ -162,11 +165,12 @@ export default function SingleInvoiceViewPage() {
       title={`Invoice ${invoice.invoiceNumber}`}
       subtitle={`Order #${invoice.orderNumber} • Issued on ${invoice.date}`}
       titleMetadata={
-        <InlineStack gap="200">
+        <InlineStack gap="200" blockAlign="center">
           <Badge tone={invoice.isB2B ? "info" : "success"}>
             {invoice.isB2B ? `B2B: ${invoice.buyerGstin}` : "B2C Retail"}
           </Badge>
           {invoice.ewayBillRequired && <Badge tone="critical">e-Way Bill Required</Badge>}
+          <InfoTip content="This invoice as saved. Download or print it here. Values change only if you use Regenerate Invoices." />
         </InlineStack>
       }
       primaryAction={{

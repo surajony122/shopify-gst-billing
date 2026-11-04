@@ -21,6 +21,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { InfoTip } from "../components/InfoTip";
 import { getStateCodeFromGSTIN, GST_STATE_CODES } from "../services/gst-engine";
 
 const PAGE_SIZE = 50;
@@ -348,6 +349,15 @@ export default function SettingsPage() {
 
   return (
     <Page
+      titleMetadata={
+        <InfoTip
+          content={
+            ["Your business details print on every invoice.",
+             "Tax rules decide how GST is calculated on new invoices.",
+             "Each invoice line uses the product's HSN code, then its collection's, then the store default."][tabIndex]
+          }
+        />
+      }
       title="GST Settings"
       subtitle="Your business details, tax rules and HSN codes"
       primaryAction={

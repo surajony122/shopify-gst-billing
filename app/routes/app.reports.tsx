@@ -17,6 +17,7 @@ import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { getReturnPeriodRange } from "../services/gstr1-exporter.server";
 import { downloadSecureFile } from "../utils/secure-file";
+import { InfoTip } from "../components/InfoTip";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -98,7 +99,8 @@ export default function ReportsPage() {
   }));
 
   return (
-    <Page title="GSTR-1 Report" subtitle="Your monthly sales return, ready for your CA or the GST portal">
+    <Page
+      titleMetadata={<InfoTip content="GSTR-1 is your sales return. Pick a month to see its totals and download files for your CA or the GST portal." />} title="GSTR-1 Report" subtitle="Your monthly sales return, ready for your CA or the GST portal">
       <BlockStack gap="400">
         <Banner tone="info" title="What is GSTR-1?">
           <p>

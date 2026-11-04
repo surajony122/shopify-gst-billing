@@ -135,6 +135,7 @@ model Invoice {
   orderDate            DateTime
   invoiceDate          DateTime          @default(now())
   status               String            @default("ACTIVE") // "ACTIVE" or "CANCELLED"
+  paymentMode          String?
   cancelledAt          DateTime?
   
   // Customer & Place of Supply

@@ -1,4 +1,5 @@
 import { Page, Card, BlockStack, Banner, Text, List, Link, InlineGrid } from "@shopify/polaris";
+import { InfoTip } from "../components/InfoTip";
 
 const QUICK_LINKS = [
   ["Get started", "#get-started"],
@@ -26,7 +27,8 @@ function Section({ id, title, children }: { id: string; title: string; children:
 
 export default function HelpPage() {
   return (
-    <Page title="Help & Docs" subtitle="How to set up and use GST Invoicing">
+    <Page
+      titleMetadata={<InfoTip content="Setup steps and answers about how the app works." />} title="Help & Docs" subtitle="How to set up and use GST Invoicing">
       <BlockStack gap="400">
         <Banner tone="info">
           <p>This guide explains how the app works. It is not tax advice, so please confirm rates and filings with your CA.</p>

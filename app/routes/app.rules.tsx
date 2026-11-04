@@ -18,6 +18,7 @@ import { useState } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { evaluateInvoiceRules } from "../services/gst-engine";
+import { InfoTip } from "../components/InfoTip";
 
 const TEMPLATE_OPTIONS = [
   { label: "Standard B2B", value: "standard_b2b" },
@@ -145,6 +146,7 @@ export default function InvoiceRulesPage() {
 
   return (
     <Page
+      titleMetadata={<InfoTip content="Sets when invoices are created, how they are numbered, and which design each order uses." />}
       title="Rules & Routing"
       subtitle="When invoices are created, how they are numbered, and which design they use"
       primaryAction={{ content: "Save Rules", onAction: handleSave, loading: navigation.state === "submitting" }}

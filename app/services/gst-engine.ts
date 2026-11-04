@@ -447,8 +447,16 @@ export function resolveShippingGstRate(
   return fixedRate;
 }
 
-/** Logos must come from Shopify's CDN, so the server never fetches arbitrary addresses. */
+const MAX_UPLOADED_IMAGE_LENGTH = 700_000; // About 500 KB once base64 encoded
+
+/**
+ * Images are either uploaded PNG/JPG files or links on Shopify's CDN, so the server
+ * never fetches arbitrary addresses.
+ */
 export function isAllowedLogoUrl(value: string): boolean {
+  if (value.startsWith("data:")) {
+    return /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(value) && value.length <= MAX_UPLOADED_IMAGE_LENGTH;
+  }
   try {
     const url = new URL(value);
     return url.protocol === "https:" && url.hostname === "cdn.shopify.com";

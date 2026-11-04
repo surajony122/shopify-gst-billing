@@ -17,6 +17,7 @@ import {
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { InfoTip } from "../components/InfoTip";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -87,6 +88,7 @@ export default function DashboardPage() {
 
   return (
     <Page
+      titleMetadata={<InfoTip content="A summary of your invoices, sales and GST. Cancelled invoices are not counted." />}
       title="GST Billing Dashboard"
       subtitle="Automated Rule 46 Compliant Invoices, GSTR Reports & e-Invoicing"
       primaryAction={{

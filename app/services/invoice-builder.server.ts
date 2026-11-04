@@ -34,6 +34,7 @@ export interface NormalizedOrder {
   createdAt: string;
   taxesIncluded: boolean;
   cancelled?: boolean;
+  paymentMode?: string | null;
   shippingAmount: number;
   totalPaid?: number;
   province?: string | null;
@@ -64,6 +65,7 @@ export function normalizeWebhookOrder(order: any): NormalizedOrder {
     createdAt: order.created_at || new Date().toISOString(),
     taxesIncluded: Boolean(order.taxes_included),
     cancelled: Boolean(order.cancelled_at),
+    paymentMode: (order.payment_gateway_names || []).join(", ") || null,
     shippingAmount: (order.shipping_lines || []).reduce(
       (sum: number, line: any) => sum + money(line.discounted_price ?? line.price),
       0
@@ -98,6 +100,7 @@ export function normalizeGraphqlOrder(order: any): NormalizedOrder {
     createdAt: order.createdAt,
     taxesIncluded: Boolean(order.taxesIncluded),
     cancelled: Boolean(order.cancelledAt),
+    paymentMode: (order.paymentGatewayNames || []).join(", ") || null,
     shippingAmount: money(order.shippingLine?.discountedPriceSet?.shopMoney?.amount),
     totalPaid: order.totalPriceSet ? money(order.totalPriceSet.shopMoney?.amount) : undefined,
     province: order.shippingAddress?.province || order.billingAddress?.province,
@@ -238,6 +241,7 @@ async function prepareInvoice(shop: string, order: NormalizedOrder, admin?: any)
 
   const fields = {
     isB2B: Boolean(buyerGstin),
+    paymentMode: order.paymentMode,
     buyerGstin,
     buyerTradeName:
       findAttribute(order, COMPANY_KEYS) ||
@@ -342,6 +346,7 @@ const orderFields = (withCustomer: boolean) => `
   createdAt
   taxesIncluded
   cancelledAt
+  paymentGatewayNames
   ${withCustomer ? `
   email
   phone

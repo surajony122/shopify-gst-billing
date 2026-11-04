@@ -18,6 +18,7 @@ function runAutoTable(doc: any, options: any) {
 /** Downloads the merchant's logo. An invoice must still print if this fails, so errors give no logo. */
 async function fetchLogoDataUrl(logoUrl?: string | null): Promise<string | undefined> {
   if (!logoUrl || !isAllowedLogoUrl(logoUrl)) return undefined;
+  if (logoUrl.startsWith("data:")) return logoUrl;
   try {
     const response = await fetch(logoUrl, { signal: AbortSignal.timeout(5000) });
     const type = response.headers.get("content-type") || "";
@@ -39,6 +40,7 @@ export async function brandingFromSettings(setting: any) {
     brandColor: setting?.brandColor || "#212B36",
     taxScheme: setting?.taxScheme || "regular",
     logoDataUrl: await fetchLogoDataUrl(setting?.logoUrl),
+    signatureDataUrl: (setting?.showSignature ?? true) ? await fetchLogoDataUrl(setting?.signatureUrl) : undefined,
     terms: (setting?.showTerms ?? true) ? setting?.termsAndConditions || undefined : undefined,
     bankDetails: {
       bankName: showBank ? setting?.bankName || undefined : undefined,
@@ -50,17 +52,273 @@ export async function brandingFromSettings(setting: any) {
 }
 
 /** Draws the logo inside a box, keeping its proportions. Returns nothing if the image is unreadable. */
-function drawLogo(doc: any, data: InvoicePDFData, x: number, y: number, maxWidth: number, maxHeight: number, alignRight = false) {
-  if (!data.logoDataUrl) return;
+function drawImage(doc: any, image: string | undefined, x: number, y: number, maxWidth: number, maxHeight: number, align: "left" | "center" | "right" = "left"): number {
+  if (!image) return 0;
   try {
-    const format = data.logoDataUrl.includes("image/png") ? "PNG" : "JPEG";
-    const { width, height } = doc.getImageProperties(data.logoDataUrl);
+    const format = image.includes("image/png") ? "PNG" : "JPEG";
+    const { width, height } = doc.getImageProperties(image);
     const scale = Math.min(maxWidth / width, maxHeight / height);
     const drawWidth = width * scale;
-    doc.addImage(data.logoDataUrl, format, alignRight ? x - drawWidth : x, y, drawWidth, height * scale);
+    const drawX = align === "right" ? x - drawWidth : align === "center" ? x - drawWidth / 2 : x;
+    doc.addImage(image, format, drawX, y, drawWidth, height * scale);
+    return height * scale;
   } catch (error) {
-    console.warn("Could not draw invoice logo", error);
+    console.warn("Could not draw invoice image", error);
+    return 0;
   }
+}
+
+function drawLogo(doc: any, data: InvoicePDFData, x: number, y: number, maxWidth: number, maxHeight: number, alignRight = false) {
+  drawImage(doc, data.logoDataUrl, x, y, maxWidth, maxHeight, alignRight ? "right" : "left");
+}
+
+const inr = (value: number) =>
+  value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const SHIPPING_SAC = "996812";
+
+/** The default A4 format: a single bordered sheet, as commonly used for Indian tax invoices. */
+async function generateStandardPDF(data: InvoicePDFData): Promise<Buffer> {
+  const doc: any = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const left = 14;
+  const right = pageWidth - 14;
+  const pad = 3;
+  const barColor: [number, number, number] = [241, 238, 231];
+  const isComposition = data.taxScheme === "composition";
+
+  let y = 8;
+  const logoHeight = drawImage(doc, data.logoDataUrl, pageWidth / 2, y, 70, 22, "center");
+  y += logoHeight ? logoHeight + 3 : 2;
+  const boxTop = y;
+
+  const setText = (size: number, style: "normal" | "bold" = "normal", gray = 50) => {
+    doc.setFont("helvetica", style);
+    doc.setFontSize(size);
+    doc.setTextColor(gray, gray, gray);
+  };
+  const rule = (atY: number) => {
+    doc.setDrawColor(30, 30, 30);
+    doc.setLineWidth(0.3);
+    doc.line(left, atY, right, atY);
+  };
+  // Starts a new page when a section would not fit, so sections are never cut in half.
+  const ensureSpace = (height: number) => {
+    if (y + height > pageHeight - 10) {
+      doc.addPage();
+      y = 10;
+      rule(y);
+    }
+  };
+
+  // Title bar
+  const title = data.customization?.invoiceTitle || (isComposition ? "BILL OF SUPPLY" : "TAX INVOICE");
+  doc.setFillColor(...barColor);
+  doc.rect(left, y, right - left, 9, "F");
+  setText(10.5, "bold", 30);
+  doc.text(`${title} # ${data.invoiceNumber}`, left + pad, y + 6);
+  doc.text(`Date : ${data.invoiceDate}`, right - pad, y + 6, { align: "right" });
+  y += 9;
+  rule(boxTop);
+  rule(y);
+
+  // Customer on the left, seller on the right
+  const columnWidth = (right - left) / 2 - pad * 2;
+  let leftY = y + 5;
+  let rightY = y + 5;
+  const leftLine = (text: string, style: "normal" | "bold" = "normal") => {
+    setText(8.5, style);
+    for (const line of doc.splitTextToSize(text, columnWidth)) {
+      doc.text(line, left + pad, leftY);
+      leftY += 4.2;
+    }
+  };
+  const rightLine = (text: string, style: "normal" | "bold" = "normal") => {
+    setText(8.5, style);
+    for (const line of doc.splitTextToSize(text, columnWidth)) {
+      doc.text(line, right - pad, rightY, { align: "right" });
+      rightY += 4.2;
+    }
+  };
+
+  leftLine("Customer Details", "bold");
+  leftLine(data.buyer.legalName || data.buyer.tradeName || "Retail Customer");
+  if (data.buyer.gstin) leftLine(`GSTIN : ${data.buyer.gstin}`, "bold");
+  if (data.buyer.address) leftLine(data.buyer.address);
+  if (data.buyer.phone) leftLine(`Tel : ${data.buyer.phone}`);
+  if (data.buyer.email) leftLine(`Email : ${data.buyer.email}`);
+  leftLine(`Place of Supply : ${data.placeOfSupply}`);
+  leftLine(`Order No : #${data.orderNumber}`);
+  leftLine("Reverse Charge : No");
+  if (data.ewayBillRequired) leftLine("e-Way Bill required", "bold");
+
+  const sellerName = data.seller.legalName || data.seller.tradeName || "Seller";
+  rightLine(sellerName, "bold");
+  if (data.seller.tradeName && data.seller.tradeName !== sellerName) rightLine(data.seller.tradeName);
+  if (data.seller.address) rightLine(data.seller.address);
+  const cityLine = [data.seller.city, data.seller.state].filter(Boolean).join(", ");
+  if (cityLine || data.seller.pincode) rightLine([cityLine, data.seller.pincode].filter(Boolean).join(" - "));
+  if (data.seller.phone) rightLine(`Tel : ${data.seller.phone}`);
+  if (data.seller.email) rightLine(`Email : ${data.seller.email}`);
+  rightLine(`GSTIN : ${data.seller.gstin || "N/A"}`);
+  if (data.seller.pan) rightLine(`PAN : ${data.seller.pan}`);
+  rightLine(`State Code : ${data.seller.stateCode}`);
+
+  y = Math.max(leftY, rightY) + 1;
+
+  // Line items: tax amount with its rate below it
+  const taxCell = (amount: number, rate: number) => `${inr(amount)}\n(${rate}%)`;
+  const halfRate = (item: InvoicePDFData["lineItems"][number]) => (data.isInterState ? 0 : item.gstRate / 2);
+  const igstRate = (item: InvoicePDFData["lineItems"][number]) => (data.isInterState ? item.gstRate : 0);
+
+  runAutoTable(doc, {
+    startY: y,
+    theme: "grid",
+    margin: { left, right: pageWidth - right, top: 10, bottom: 12 },
+    tableWidth: right - left,
+    head: [["ITEM(s) DESCRIPTION", "HSN", "Qty", "RATE (Rs.)", "TAXABLE (Rs.)", "CGST", "SGST", "IGST", "AMOUNT (Rs.)"]],
+    body: data.lineItems.map((item) => [
+      item.sku ? `${item.title}\nSKU: ${item.sku}` : item.title,
+      item.hsnCode,
+      item.quantity,
+      inr(item.unitPrice),
+      item.discount > 0 ? `${inr(item.taxableValue)}\n(Disc: ${inr(item.discount)})` : inr(item.taxableValue),
+      taxCell(item.cgstAmount, halfRate(item)),
+      taxCell(item.sgstAmount, halfRate(item)),
+      taxCell(item.igstAmount, igstRate(item)),
+      inr(item.totalAmount),
+    ]),
+    foot: [["Total", "", "", "", { content: inr(data.subtotalTaxable), styles: { halign: "right" } }, { content: inr(data.cgstTotal), styles: { halign: "right" } }, { content: inr(data.sgstTotal), styles: { halign: "right" } }, { content: inr(data.igstTotal), styles: { halign: "right" } }, { content: inr(data.lineItems.reduce((sum, item) => sum + item.totalAmount, 0)), styles: { halign: "right" } }]],
+    showFoot: "lastPage",
+    styles: { fontSize: 7.5, cellPadding: 1.8, textColor: [50, 50, 50], lineColor: [190, 190, 190], lineWidth: 0.2, valign: "top" },
+    headStyles: { fillColor: barColor, textColor: [30, 30, 30], fontStyle: "bold", fontSize: 7 },
+    footStyles: { fillColor: [250, 249, 246], textColor: [30, 30, 30], fontStyle: "bold" },
+    columnStyles: {
+      0: { cellWidth: 48 },
+      1: { cellWidth: 14 },
+      2: { cellWidth: 9, halign: "center" },
+      3: { cellWidth: 20, halign: "right" },
+      4: { cellWidth: 21, halign: "right" },
+      5: { cellWidth: 17, halign: "right" },
+      6: { cellWidth: 17, halign: "right" },
+      7: { cellWidth: 17, halign: "right" },
+      8: { cellWidth: 19, halign: "right" },
+    },
+  });
+  y = doc.lastAutoTable.finalY;
+
+  // Amount lines add up to the invoice total, with item amounts shown before discount.
+  const items = data.lineItems.filter((item) => item.hsnCode !== SHIPPING_SAC);
+  const discountWithTax = items.reduce((sum, item) => sum + item.discount * (1 + item.gstRate / 100), 0);
+  const itemsAmount = items.reduce((sum, item) => sum + item.totalAmount, 0);
+  const shipping = data.lineItems.filter((item) => item.hsnCode === SHIPPING_SAC).reduce((sum, item) => sum + item.totalAmount, 0);
+  const summary: Array<[string, string]> = [["Items Subtotal", `Rs. ${inr(itemsAmount + discountWithTax)}`]];
+  if (discountWithTax >= 0.01) summary.push(["Discount", `-Rs. ${inr(discountWithTax)}`]);
+  if (shipping > 0) summary.push(["Shipping", `Rs. ${inr(shipping)}`]);
+  if (data.roundOff !== 0) summary.push(["Round-off", `Rs. ${inr(data.roundOff)}`]);
+
+  const wordsLines = doc.splitTextToSize(numberToIndianWords(data.grandTotal), columnWidth);
+  const hasBank = Boolean(data.bankDetails?.accountNo);
+  const hasUpi = Boolean(data.bankDetails?.upiId);
+  ensureSpace(Math.max(summary.length * 6 + 14, 24 + wordsLines.length * 4 + (hasBank ? 16 : 0) + (hasUpi ? 26 : 0)));
+
+  let wordsY = y + 5;
+  setText(8.5);
+  doc.text("Total In Words", left + pad, wordsY);
+  wordsY += 4.2;
+  setText(8.5, "bold", 30);
+  doc.text(wordsLines, left + pad, wordsY);
+  wordsY += wordsLines.length * 4 + 2;
+  setText(8.5);
+  if (data.paymentMode) {
+    doc.text(`Payment Mode : ${data.paymentMode}`.substring(0, 60), left + pad, wordsY);
+    wordsY += 4.5;
+  }
+  if (hasBank) {
+    doc.text(`Bank : ${data.bankDetails?.bankName || "N/A"}`, left + pad, wordsY);
+    doc.text(`A/C No : ${data.bankDetails?.accountNo}`, left + pad, wordsY + 4);
+    doc.text(`IFSC : ${data.bankDetails?.ifsc || "N/A"}`, left + pad, wordsY + 8);
+    wordsY += 13;
+  }
+  if (hasUpi) {
+    try {
+      const qr = await QRCode.toDataURL(`upi://pay?pa=${data.bankDetails?.upiId}&pn=${encodeURIComponent(sellerName)}&am=${data.grandTotal}&cu=INR`, { width: 100, margin: 1 });
+      doc.addImage(qr, "PNG", left + pad, wordsY, 20, 20);
+      setText(7, "normal", 100);
+      doc.text("Scan to pay by UPI", left + pad + 22, wordsY + 10);
+      wordsY += 22;
+    } catch (e) {
+      // Ignore QR errors
+    }
+  }
+
+  const summaryX = pageWidth / 2 + 8;
+  let summaryY = y + 5;
+  for (const [label, value] of summary) {
+    setText(8.5);
+    doc.text(label, summaryX, summaryY);
+    doc.text(value, right - pad, summaryY, { align: "right" });
+    doc.setDrawColor(215, 215, 215);
+    doc.setLineWidth(0.2);
+    doc.line(summaryX, summaryY + 2, right - pad, summaryY + 2);
+    summaryY += 6;
+  }
+  setText(10.5, "bold", 30);
+  doc.text("Total", summaryX, summaryY + 1);
+  doc.text(`Rs. ${inr(data.grandTotal)}`, right - pad, summaryY + 1, { align: "right" });
+  summaryY += 5;
+
+  y = Math.max(wordsY, summaryY) + 1;
+  rule(y);
+
+  // Terms
+  if (data.terms) {
+    setText(7);
+    const lines = doc.splitTextToSize(data.terms, right - left - pad * 2);
+    ensureSpace(lines.length * 3.2 + 6);
+    setText(7, "normal", 90);
+    doc.text(lines, left + pad, y + 4.5);
+    y += lines.length * 3.2 + 4;
+    rule(y);
+  }
+
+  // Customer acceptance and seller signature
+  ensureSpace(40);
+  if (data.terms) {
+    setText(8.5);
+    doc.text("I have read, understood and agreed to the terms & conditions.", left + pad, y + 6);
+    doc.text(`Customer Signature : ${(data.buyer.legalName || "").substring(0, 40)}`, left + pad, y + 12);
+  }
+  setText(8.5);
+  doc.text(`For ${sellerName}`, right - pad, y + 6, { align: "right" });
+  drawImage(doc, data.signatureDataUrl, right - pad, y + 8, 40, 20, "right");
+  doc.text(data.customization?.signatureLabel || "Authorized Signatory", right - pad, y + 33, { align: "right" });
+  y += 36;
+  rule(y);
+
+  // Footer
+  ensureSpace(14);
+  setText(7.5, "normal", 100);
+  if (data.customization?.footerNote) {
+    doc.text(data.customization.footerNote, pageWidth / 2, y + 4.5, { align: "center" });
+    y += 4;
+  }
+  doc.text("This is a Computer Generated Invoice.", pageWidth / 2, y + 4.5, { align: "center" });
+  y += 7;
+
+  // Side borders on every page, ending where the content ends
+  const pages = doc.getNumberOfPages();
+  doc.setDrawColor(30, 30, 30);
+  doc.setLineWidth(0.3);
+  for (let page = 1; page <= pages; page++) {
+    doc.setPage(page);
+    const top = page === 1 ? boxTop : 10;
+    const bottom = page === pages ? y : pageHeight - 10;
+    doc.rect(left, top, right - left, bottom - top, "S");
+  }
+
+  return Buffer.from(doc.output("arraybuffer"));
 }
 
 /** Prints terms and the footer note, moving to a new page if they do not fit. */
@@ -132,6 +390,7 @@ export interface InvoicePDFData {
   isInterState: boolean;
   lineItems: Array<{
     title: string;
+    sku?: string;
     hsnCode: string;
     quantity: number;
     unitPrice: number;
@@ -158,6 +417,8 @@ export interface InvoicePDFData {
   terms?: string;
   template?: string; // "standard_b2b" | "modern_d2c" | "minimalist" | "thermal_pos"
   logoDataUrl?: string;
+  signatureDataUrl?: string;
+  paymentMode?: string;
   brandColor?: string;
   taxScheme?: string;
   ewayBillRequired?: boolean;
@@ -609,7 +870,14 @@ async function generateMinimalistPDF(data: InvoicePDFData): Promise<Buffer> {
     }
   }
 
-  drawTermsAndFooter(doc, data, finalY + 8, 16);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(90, 90, 90);
+  doc.text(`For ${data.seller.legalName || data.seller.tradeName}`, pageWidth - 16, finalY + 8, { align: "right" });
+  drawImage(doc, data.signatureDataUrl, pageWidth - 16, finalY + 10, 36, 12, "right");
+  doc.text(data.customization?.signatureLabel || "Authorized Signatory", pageWidth - 16, finalY + 26, { align: "right" });
+
+  drawTermsAndFooter(doc, data, finalY + 34, 16);
 
   const arrayBuffer = doc.output("arraybuffer");
   return Buffer.from(arrayBuffer);
@@ -629,6 +897,10 @@ export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffe
     return generateMinimalistPDF(data);
   }
 
+  if (template !== "modern_d2c") {
+    return generateStandardPDF(data);
+  }
+
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
@@ -645,43 +917,22 @@ export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffe
     ? "Composition taxable person, not eligible to collect tax on supplies"
     : "(Issued under Rule 46 of the CGST Rules, 2017 - Original for Recipient)");
 
-  if (template === "modern_d2c") {
-    // Modern D2C Header Banner with brand color
-    doc.setFillColor(brandRgb[0], brandRgb[1], brandRgb[2]);
-    doc.rect(0, 0, pageWidth, 28, "F");
-    drawLogo(doc, data, pageWidth - 14, 7, 40, 14, true);
+  // Modern D2C Header Banner with brand color
+  doc.setFillColor(brandRgb[0], brandRgb[1], brandRgb[2]);
+  doc.rect(0, 0, pageWidth, 28, "F");
+  drawLogo(doc, data, pageWidth - 14, 7, 40, 14, true);
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.setTextColor(255, 255, 255);
-    doc.text(docTitle, 14, 15);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.setTextColor(255, 255, 255);
+  doc.text(docTitle, 14, 15);
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
-    doc.setTextColor(230, 230, 230);
-    doc.text(docSubtitle, 14, 21);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(230, 230, 230);
+  doc.text(docSubtitle, 14, 21);
 
-    y = 35;
-  } else {
-    // Standard Traditional B2B Format
-    drawLogo(doc, data, 14, 6, 36, 12);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.setTextColor(brandRgb[0], brandRgb[1], brandRgb[2]);
-    doc.text(docTitle, pageWidth / 2, y, { align: "center" });
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.setTextColor(100, 100, 100);
-    doc.text(docSubtitle, pageWidth / 2, y + 4, { align: "center" });
-    y += 10;
-
-    // Outer border line for traditional format
-    doc.setDrawColor(brandRgb[0], brandRgb[1], brandRgb[2]);
-    doc.setLineWidth(0.3);
-    doc.line(14, y, pageWidth - 14, y);
-    y += 5;
-  }
+  y = 35;
 
   // 2-Column Header: Seller Info (Left) vs Invoice Details (Right)
   const leftX = 14;
@@ -924,6 +1175,7 @@ export async function generateGSTInvoicePDF(data: InvoicePDFData): Promise<Buffe
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.5);
   doc.setTextColor(120, 120, 120);
+  drawImage(doc, data.signatureDataUrl, pageWidth - 14, finalY + 2, 36, 12, "right");
   doc.text(`(${data.customization?.signatureLabel || "Authorized Signatory"})`, pageWidth - 14, finalY + 16, { align: "right" });
 
   drawTermsAndFooter(doc, data, finalY + 30, 14);

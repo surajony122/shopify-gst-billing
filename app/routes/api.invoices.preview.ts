@@ -29,8 +29,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       state: setting?.state || "Maharashtra",
       stateCode: setting?.stateCode || "27",
       pincode: setting?.pincode || "400001",
-      phone: "+91 98765 43210",
-      email: "billing@mystore.in",
+      phone: setting?.phone || "+91 98765 43210",
+      email: setting?.email || "billing@mystore.in",
     },
     buyer: {
       legalName: "Apex Retailers LLP",
@@ -77,6 +77,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     roundOff: 0.28,
     grandTotal: 6038.0,
     ...(await brandingFromSettings(setting)),
+    paymentMode: "Cards, UPI, NB, Wallets",
+    customization: {
+      signatureLabel: setting?.signatureLabel || undefined,
+      footerNote: setting?.footerNote || undefined,
+    },
     template,
     ewayBillRequired: false,
   });

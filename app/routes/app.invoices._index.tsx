@@ -31,6 +31,7 @@ import {
   regenerateInvoices,
 } from "../services/invoice-builder.server";
 import { downloadSecureFile, openSecureFile } from "../utils/secure-file";
+import { InfoTip } from "../components/InfoTip";
 
 const CUSTOMER_DATA_WARNING =
   "Shopify did not allow access to customer names and addresses, so orders without a GSTIN may show a generic name and your own state as the place of supply. Request protected customer data access in the Partner dashboard, then regenerate.";
@@ -153,6 +154,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       buyerEmail: inv.buyerEmail,
       buyerPhone: inv.buyerPhone,
       status: inv.status,
+      paymentMode: inv.paymentMode,
+      shippingAddress: inv.shippingAddress,
       customer: inv.buyerTradeName || "Retail Customer",
       isB2B: inv.isB2B,
       buyerGstin: inv.buyerGstin || "N/A",
@@ -336,6 +339,7 @@ export default function InvoicesListPage() {
 
   return (
     <Page
+      titleMetadata={<InfoTip content="Invoices are created automatically from your Shopify orders. Sync adds your latest 50 orders, and Regenerate rebuilds invoices from current Shopify data." />}
       fullWidth
       title="GST Tax Invoices"
       subtitle={`Total ${totalCount} invoices issued (Rule 46 Compliant)`}

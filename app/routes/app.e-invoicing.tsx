@@ -14,6 +14,7 @@ import {
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { InfoTip } from "../components/InfoTip";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -71,6 +72,7 @@ export default function EInvoicingPage() {
 
   return (
     <Page
+      titleMetadata={<InfoTip content="Lists invoices that may need an IRN or e-Way Bill. The app cannot create these, so generate them on the government portals." />}
       title="e-Invoicing (IRN) & e-Way Bills"
       subtitle="Invoices that may need filing on the government portals"
     >

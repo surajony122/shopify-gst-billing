@@ -33,7 +33,7 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
     const pdfBuffer = await generateGSTInvoicePDF({
       invoiceNumber: invoice.invoiceNumber,
       orderNumber: invoice.shopifyOrderNumber,
-      invoiceDate: new Date(invoice.invoiceDate).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
+      invoiceDate: new Date(invoice.invoiceDate).toLocaleDateString("en-GB", { timeZone: "Asia/Kolkata" }),
       financialYear: invoice.financialYear,
       seller: {
         legalName: setting?.legalName || "Seller Trade Name",
@@ -52,7 +52,7 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
         legalName: invoice.buyerTradeName || "Retail Customer (B2C)",
         tradeName: invoice.buyerTradeName || "",
         gstin: invoice.buyerGstin || undefined,
-        address: [shipTo?.address1, shipTo?.address2, shipTo?.city, shipTo?.zip].filter(Boolean).join(", "),
+        address: [shipTo?.address1, shipTo?.address2, shipTo?.city, shipTo?.zip, shipTo?.country].filter(Boolean).join(", "),
         phone: invoice.buyerPhone || undefined,
         email: invoice.buyerEmail || undefined,
         state: cleanStateName(invoice.placeOfSupplyState),
@@ -62,6 +62,7 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
       isInterState: invoice.isInterState,
       lineItems: invoice.lineItems.map((item) => ({
         title: item.title,
+        sku: item.sku || undefined,
         hsnCode: item.hsnCode,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
@@ -80,6 +81,7 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
       roundOff: invoice.roundOffAmount,
       grandTotal: invoice.grandTotal,
       ...(await brandingFromSettings(setting)),
+      paymentMode: invoice.paymentMode || undefined,
       template: (new URL(request.url).searchParams.get("template") as string) || (invoice as any).templateUsed || setting?.invoiceTemplate || "standard_b2b",
       ewayBillRequired: (invoice as any).ewayBillRequired || false,
       customization: {
