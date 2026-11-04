@@ -20,7 +20,7 @@ export const PRO_PLAN = "Pro";
 const shopify = shopifyApp({
   apiKey: requireEnv("SHOPIFY_API_KEY"),
   apiSecretKey: requireEnv("SHOPIFY_API_SECRET"),
-  apiVersion: ApiVersion.October25,
+  apiVersion: ApiVersion.October26,
   scopes: process.env.SCOPES?.split(",") || [
     "read_products",
     "write_products",
@@ -45,13 +45,10 @@ const shopify = shopifyApp({
       lineItems: [{ amount: 15, currencyCode: "USD", interval: BillingInterval.Every30Days }],
     },
   },
-  future: {
-    unstable_newEmbeddedAuthStrategy: true,
-  },
 });
 
 export default shopify;
-export const apiVersion = ApiVersion.October25;
+export const apiVersion = ApiVersion.October26;
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
 export const authenticate = shopify.authenticate;
 export const unauthenticated = shopify.unauthenticated;
