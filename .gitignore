@@ -26,3 +26,5 @@ Thumbs.db
 # Shopify extension build output
 extensions/*/manifest.json
 extensions/*/shopify.d.ts
+test-env/node_modules/
+test-env/data/

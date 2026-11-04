@@ -1,0 +1,7 @@
+{
+  "name": "wom-gst-test-db",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node db.mjs" },
+  "dependencies": { "embedded-postgres": "17.5.0-beta.15" }
+}
