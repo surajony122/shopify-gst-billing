@@ -121,7 +121,8 @@ function b2csSummary(invoices: GSTR1Invoice[], creditNotes: GSTR1CreditNote[]) {
     .filter((cn) => !isB2B(cn.invoice) && !isB2CLarge(cn.invoice))
     .forEach((cn) => add(cn.invoice, -creditRatio(cn)));
 
-  return Array.from(rows.values());
+  // A ₹0 row, such as a fully discounted order, has nothing to report.
+  return Array.from(rows.values()).filter((row) => round2(row.txval) !== 0);
 }
 
 function hsnSummary(invoices: GSTR1Invoice[], creditNotes: GSTR1CreditNote[], b2b: boolean): HsnRow[] {
@@ -302,8 +303,19 @@ export function buildGSTR1Json(
   };
 }
 
+/** Passing the headers keeps the column titles on a sheet with no rows. */
+const sheetWithHeaders = (rows: Record<string, unknown>[], headers: string[]) =>
+  XLSX.utils.json_to_sheet(rows, { header: headers });
+
+const HSN_HEADERS = ["HSN", "Description", "UQC", "Total Quantity", "Rate", "Taxable Value", "Integrated Tax Amount", "Central Tax Amount", "State/UT Tax Amount", "Cess Amount"];
+const B2B_HEADERS = ["GSTIN/UIN of Recipient", "Receiver Name", "Invoice Number", "Invoice Date", "Invoice Value", "Place Of Supply", "Reverse Charge", "Applicable % of Tax Rate", "Invoice Type", "E-Commerce GSTIN", "Rate", "Taxable Value", "Cess Amount"];
+const B2CL_HEADERS = ["Invoice Number", "Invoice Date", "Invoice Value", "Place Of Supply", "Applicable % of Tax Rate", "Rate", "Taxable Value", "Cess Amount", "E-Commerce GSTIN"];
+const B2CS_HEADERS = ["Type", "Place Of Supply", "Applicable % of Tax Rate", "Rate", "Taxable Value", "Cess Amount", "E-Commerce GSTIN"];
+const CREDIT_HEADERS = ["GSTIN/UIN of Recipient", "Receiver Name", "Note Number", "Note Date", "Note Type", "Place Of Supply", "Note Value", "Rate", "Taxable Value", "Cess Amount"];
+const DOC_HEADERS = ["Nature of Document", "Sr. No. From", "Sr. No. To", "Total Number", "Cancelled"];
+
 function hsnSheet(rows: HsnRow[]) {
-  return XLSX.utils.json_to_sheet(
+  return sheetWithHeaders(
     rows.map((h) => ({
       "HSN": h.hsn,
       "Description": h.desc,
@@ -315,7 +327,8 @@ function hsnSheet(rows: HsnRow[]) {
       "Central Tax Amount": h.camt,
       "State/UT Tax Amount": h.samt,
       "Cess Amount": 0,
-    }))
+    })),
+    HSN_HEADERS
   );
 }
 
@@ -347,7 +360,7 @@ export function generateGSTR1Workbook(
       "Cess Amount": 0,
     }))
   );
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(b2bRows), "b2b");
+  XLSX.utils.book_append_sheet(wb, sheetWithHeaders(b2bRows, B2B_HEADERS), "b2b");
 
   // 2. Sheet: B2CL (inter-state B2C invoices above the threshold)
   const b2clRows = invoices.filter(isB2CLarge).flatMap((inv) =>
@@ -363,7 +376,7 @@ export function generateGSTR1Workbook(
       "E-Commerce GSTIN": "",
     }))
   );
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(b2clRows), "b2cl");
+  XLSX.utils.book_append_sheet(wb, sheetWithHeaders(b2clRows, B2CL_HEADERS), "b2cl");
 
   // 3. Sheet: B2CS (state-wise and rate-wise summary)
   const b2csRows = b2csSummary(invoices, creditNotes).map((row) => ({
@@ -375,7 +388,7 @@ export function generateGSTR1Workbook(
     "Cess Amount": 0,
     "E-Commerce GSTIN": "",
   }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(b2csRows), "b2cs");
+  XLSX.utils.book_append_sheet(wb, sheetWithHeaders(b2csRows, B2CS_HEADERS), "b2cs");
 
   // 4. Sheets: Credit notes to registered and large unregistered buyers
   const creditRows = (list: GSTR1CreditNote[]) =>
@@ -393,8 +406,8 @@ export function generateGSTR1Workbook(
         "Cess Amount": 0,
       }))
     );
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(creditRows(creditNotes.filter((cn) => isB2B(cn.invoice)))), "cdnr");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(creditRows(creditNotes.filter((cn) => isB2CLarge(cn.invoice)))), "cdnur");
+  XLSX.utils.book_append_sheet(wb, sheetWithHeaders(creditRows(creditNotes.filter((cn) => isB2B(cn.invoice))), CREDIT_HEADERS), "cdnr");
+  XLSX.utils.book_append_sheet(wb, sheetWithHeaders(creditRows(creditNotes.filter((cn) => isB2CLarge(cn.invoice))), CREDIT_HEADERS), "cdnur");
 
   // 5. Sheets: HSN Summary, split into B2B and B2C as Table 12 requires
   XLSX.utils.book_append_sheet(wb, hsnSheet(hsnSummary(invoices, creditNotes, true)), "hsn(b2b)");
@@ -411,7 +424,7 @@ export function generateGSTR1Workbook(
     "Total Number": d.totnum,
     "Cancelled": d.cancel,
   }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(docRows), "docs");
+  XLSX.utils.book_append_sheet(wb, sheetWithHeaders(docRows, DOC_HEADERS), "docs");
 
   // Return binary buffer
   return XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
