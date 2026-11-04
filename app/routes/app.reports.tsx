@@ -31,18 +31,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { start, end } = getReturnPeriodRange(month, year);
   const period = { shop, status: "ACTIVE", invoiceDate: { gte: start, lt: end } };
 
-  const [setting, b2bCount, b2cCount, agg, creditNotes] = await Promise.all([
+  const [setting, b2bCount, b2cCount, agg] = await Promise.all([
     prisma.storeSetting.findUnique({ where: { shop } }),
     prisma.invoice.count({ where: { ...period, isB2B: true } }),
     prisma.invoice.count({ where: { ...period, isB2B: false } }),
     prisma.invoice.aggregate({
       where: period,
       _sum: { subtotalTaxable: true, cgstTotal: true, sgstTotal: true, igstTotal: true },
-    }),
-    prisma.creditNote.aggregate({
-      where: { shop, date: { gte: start, lt: end } },
-      _count: true,
-      _sum: { taxableAdjusted: true },
     }),
   ]);
 
@@ -56,8 +51,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     b2cCount,
     taxableSales: agg._sum.subtotalTaxable || 0,
     totalTax: (agg._sum.cgstTotal || 0) + (agg._sum.sgstTotal || 0) + (agg._sum.igstTotal || 0),
-    creditNoteCount: creditNotes._count,
-    creditNoteTaxable: creditNotes._sum.taxableAdjusted || 0,
   });
 };
 
@@ -134,7 +127,7 @@ export default function ReportsPage() {
           </InlineStack>
         </Card>
 
-        <InlineGrid columns={{ xs: 1, sm: 2, md: 4 }} gap="400">
+        <InlineGrid columns={{ xs: 1, sm: 2, md: 3 }} gap="400">
           <Card>
             <BlockStack gap="200">
               <Text as="h3" variant="headingSm" tone="subdued">Invoices</Text>
@@ -152,13 +145,6 @@ export default function ReportsPage() {
             <BlockStack gap="200">
               <Text as="h3" variant="headingSm" tone="subdued">GST on Sales</Text>
               <Text as="p" variant="headingLg" fontWeight="bold">{`₹${data.totalTax.toLocaleString("en-IN")}`}</Text>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h3" variant="headingSm" tone="subdued">Credit Notes</Text>
-              <Text as="p" variant="headingLg" fontWeight="bold">{data.creditNoteCount}</Text>
-              <Text as="p" variant="bodySm" tone="subdued">{`₹${data.creditNoteTaxable.toLocaleString("en-IN")} taxable reversed`}</Text>
             </BlockStack>
           </Card>
         </InlineGrid>

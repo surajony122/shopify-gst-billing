@@ -58,7 +58,7 @@ const UNAVAILABLE_MESSAGE =
   "Shopify couldn't start billing. Set this app to public distribution in the Partner dashboard, then try again.";
 
 const PLANS = [
-  { name: "Free", price: "$0", features: ["25 invoices a month", "Automatic GST invoices", "Standard template", "Credit notes and HSN codes"] },
+  { name: "Free", price: "$0", features: ["25 invoices a month", "Automatic GST invoices", "Standard template", "HSN codes"] },
   { name: "Growth", price: "$6", features: ["500 invoices a month", "All templates", "Logo and signature", "GSTR-1 Excel and JSON files"] },
   { name: "Pro", price: "$15", features: ["Unlimited invoices", "Everything in Growth", "Priority support"] },
 ];

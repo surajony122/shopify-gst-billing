@@ -87,7 +87,7 @@ export default function HelpPage() {
             <List.Item><strong>Order cancelled, invoice from an earlier month:</strong> the invoice stays on record, because it may already be filed, and a credit note reverses it.</List.Item>
             <List.Item><strong>Order cancelled before an invoice exists:</strong> no invoice is created.</List.Item>
           </List>
-          <Text as="p">To see credit notes, choose Credit Notes in the menu.</Text>
+          <Text as="p">Credit notes run in the background and are included in your GSTR-1 file. The app has no separate page for them.</Text>
         </Section>
 
         <Section id="gstr1" title="GSTR-1 report">

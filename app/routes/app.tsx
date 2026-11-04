@@ -15,7 +15,6 @@ const NAV_GROUPS = [
     label: "Invoicing",
     links: [
       { to: "/app/invoices", label: "GST Invoices", icon: "receipt" },
-      { to: "/app/credit-notes", label: "Credit Notes", icon: "return" },
       { to: "/app/e-invoicing", label: "e-Invoicing", icon: "file-text" },
       { to: "/app/reports", label: "GSTR-1 Report", icon: "bar-chart" },
     ],
