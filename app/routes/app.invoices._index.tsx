@@ -146,6 +146,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       orderNumber: inv.shopifyOrderNumber,
       financialYear: inv.financialYear,
       date: new Date(inv.invoiceDate).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
+      orderDate: new Date(inv.orderDate).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
+      buyerEmail: inv.buyerEmail,
+      buyerPhone: inv.buyerPhone,
       customer: inv.buyerTradeName || "Retail Customer",
       isB2B: inv.isB2B,
       buyerGstin: inv.buyerGstin || "N/A",
@@ -242,7 +245,10 @@ export default function InvoicesListPage() {
         invoiceNumber,
         orderNumber,
         date,
+        orderDate,
         customer,
+        buyerEmail,
+        buyerPhone,
         isB2B,
         buyerGstin,
         placeOfSupply,
@@ -250,7 +256,6 @@ export default function InvoicesListPage() {
         taxableValueFormatted,
         totalTaxFormatted,
         grandTotalFormatted,
-        templateUsed,
         ewayBillRequired,
       },
       index
@@ -265,33 +270,37 @@ export default function InvoicesListPage() {
           <BlockStack gap="050">
             <Link to={`/app/invoices/${id}`} style={{ textDecoration: "none", color: "inherit" }}>
               <Text variant="bodyMd" fontWeight="bold" as="span">
-                {invoiceNumber}
+                {`Order #${orderNumber}`}
               </Text>
             </Link>
-            <InlineStack gap="100">
-              <Badge tone="info">{templateUsed === "thermal_pos" ? "Thermal POS" : templateUsed === "modern_d2c" ? "Modern D2C" : templateUsed === "minimalist" ? "Minimalist" : "Standard B2B"}</Badge>
-              {ewayBillRequired && <Badge tone="critical">e-Way Bill</Badge>}
-            </InlineStack>
+            <Text as="span" variant="bodySm" tone="subdued">{invoiceNumber}</Text>
+            {ewayBillRequired && <Badge tone="critical">e-Way Bill</Badge>}
           </BlockStack>
         </IndexTable.Cell>
-        <IndexTable.Cell>#{orderNumber}</IndexTable.Cell>
-        <IndexTable.Cell>{date}</IndexTable.Cell>
+        <IndexTable.Cell>
+          <BlockStack gap="050">
+            <Text as="span" variant="bodySm">{orderDate}</Text>
+            <Text as="span" variant="bodySm" tone="subdued">{`Invoice: ${date}`}</Text>
+          </BlockStack>
+        </IndexTable.Cell>
         <IndexTable.Cell>
           <BlockStack gap="050">
             <Text as="span" variant="bodySm" fontWeight="medium">{customer}</Text>
+            {buyerEmail && <Text as="span" variant="bodySm" tone="subdued">{buyerEmail}</Text>}
+            {buyerPhone && <Text as="span" variant="bodySm" tone="subdued">{buyerPhone}</Text>}
             {isB2B ? (
               <Badge tone="info">{`B2B: ${buyerGstin}`}</Badge>
             ) : (
-              <Text as="span" variant="bodyXs" tone="subdued">B2C</Text>
+              <Text as="span" variant="bodySm" tone="subdued">B2C</Text>
             )}
           </BlockStack>
         </IndexTable.Cell>
         <IndexTable.Cell>
           <BlockStack gap="050">
             <Text as="span" variant="bodySm">{placeOfSupply}</Text>
-            <Badge tone={isInterState ? "attention" : "success"}>
-              {isInterState ? "IGST (Inter-State)" : "CGST + SGST (Same State)"}
-            </Badge>
+            <Text as="span" variant="bodySm" tone="subdued">
+              {isInterState ? "IGST" : "CGST + SGST"}
+            </Text>
           </BlockStack>
         </IndexTable.Cell>
         <IndexTable.Cell>{taxableValueFormatted}</IndexTable.Cell>
@@ -311,7 +320,7 @@ export default function InvoicesListPage() {
                 setPreviewTemplate(invoices[index].templateUsed || "standard_b2b");
               }}
             >
-              View Invoice
+              View
             </Button>
           </ButtonGroup>
         </IndexTable.Cell>
@@ -321,6 +330,7 @@ export default function InvoicesListPage() {
 
   return (
     <Page
+      fullWidth
       title="GST Tax Invoices"
       subtitle={`Total ${totalCount} invoices issued (Rule 46 Compliant)`}
       primaryAction={{
@@ -404,11 +414,11 @@ export default function InvoicesListPage() {
                   allResourcesSelected ? "All" : selectedResources.length
                 }
                 onSelectionChange={handleSelectionChange}
+                selectable={false}
                 headings={[
-                  { title: "Invoice No." },
-                  { title: "Order #" },
-                  { title: "Date" },
-                  { title: "Recipient / GSTIN" },
+                  { title: "Order / Invoice" },
+                  { title: "Order Date" },
+                  { title: "Customer" },
                   { title: "Place of Supply" },
                   { title: "Taxable" },
                   { title: "GST" },
