@@ -23,8 +23,17 @@ import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { InvoiceHTMLPreview } from "../components/InvoiceHTMLPreview";
 import { cleanStateName } from "../services/gst-engine";
-import { createInvoiceForOrder, normalizeGraphqlOrder } from "../services/invoice-builder.server";
+import {
+  createInvoiceForOrder,
+  fetchOrdersByIds,
+  fetchRecentOrders,
+  isDevelopmentStore,
+  regenerateInvoices,
+} from "../services/invoice-builder.server";
 import { downloadSecureFile, openSecureFile } from "../utils/secure-file";
+
+const CUSTOMER_DATA_WARNING =
+  "Shopify did not allow access to customer names and addresses, so orders without a GSTIN may show a generic name and your own state as the place of supply. Request protected customer data access in the Partner dashboard, then regenerate.";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, admin } = await authenticate.admin(request);
@@ -34,56 +43,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (intent === "sync_past_orders") {
     try {
-      const fetchOrders = async (withAddress: boolean) => {
-        const response = await admin.graphql(`
-          query getPastOrders {
-            orders(first: 50, sortKey: CREATED_AT, reverse: true) {
-              nodes {
-                id
-                name
-                createdAt
-                taxesIncluded
-                ${withAddress ? "shippingAddress { province }" : ""}
-                totalPriceSet { shopMoney { amount } }
-                shippingLine { discountedPriceSet { shopMoney { amount } } }
-                customAttributes { key value }
-                lineItems(first: 50) {
-                  nodes {
-                    title
-                    variantTitle
-                    sku
-                    quantity
-                    product { id }
-                    variant { id }
-                    originalUnitPriceSet { shopMoney { amount } }
-                    discountAllocations { allocatedAmountSet { shopMoney { amount } } }
-                  }
-                }
-              }
-            }
-          }
-        `);
-        const body = (await response.json()) as any;
-        if (body.errors?.length) {
-          throw new Error(body.errors[0]?.message || "Could not retrieve orders");
-        }
-        return body.data?.orders?.nodes || [];
-      };
-
-      // Addresses are protected customer data. Without that access Shopify rejects the
-      // query, and the buyer's state cannot be determined for non-B2B orders.
-      let addressesAvailable = true;
-      let orders: any[];
-      try {
-        orders = await fetchOrders(true);
-      } catch {
-        addressesAvailable = false;
-        orders = await fetchOrders(false);
-      }
+      const { orders, customerDataAvailable } = await fetchRecentOrders(admin);
 
       let syncedCount = 0;
       for (const order of orders) {
-        const result = await createInvoiceForOrder(shop, normalizeGraphqlOrder(order));
+        const result = await createInvoiceForOrder(shop, order);
         if (result.created) syncedCount += 1;
       }
 
@@ -93,15 +57,41 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
       return json({
         success: true,
-        message: addressesAvailable || syncedCount === 0
+        message: customerDataAvailable || syncedCount === 0
           ? summary
-          : `${summary} Shopify did not allow access to shipping addresses, so non-B2B orders use your own state as the place of supply. Please review them.`,
+          : `${summary} ${CUSTOMER_DATA_WARNING}`,
       });
     } catch (err: any) {
       console.error("Error in sync_past_orders:", err);
       return json({
         success: false,
         message: `Failed to sync orders: ${err.message || "Unknown error"}`,
+      });
+    }
+  }
+
+  if (intent === "regenerate_invoices") {
+    try {
+      const result = await regenerateInvoices(
+        shop,
+        (ids) => fetchOrdersByIds(admin, ids),
+        await isDevelopmentStore(admin)
+      );
+
+      const notes = [
+        `Regenerated ${result.regenerated} invoices from current Shopify data.`,
+        result.skippedCreditNotes > 0 && `Skipped ${result.skippedCreditNotes} with credit notes.`,
+        result.skippedEarlierMonths > 0 && `Skipped ${result.skippedEarlierMonths} from earlier months, which may already be sent or filed.`,
+        result.skippedMissingOrders > 0 && `Skipped ${result.skippedMissingOrders} whose orders no longer exist in Shopify.`,
+        !result.customerDataAvailable && CUSTOMER_DATA_WARNING,
+      ].filter(Boolean);
+
+      return json({ success: true, message: notes.join(" ") });
+    } catch (err: any) {
+      console.error("Error in regenerate_invoices:", err);
+      return json({
+        success: false,
+        message: `Failed to regenerate invoices: ${err.message || "Unknown error"}`,
       });
     }
   }
@@ -209,6 +199,8 @@ export default function InvoicesListPage() {
   const [query, setQuery] = useState(searchParams.get("query") || "");
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
   const [previewTemplate, setPreviewTemplate] = useState<string>("standard_b2b");
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
+  const isRegenerating = navigation.state === "submitting" && navigation.formData?.get("intent") === "regenerate_invoices";
 
   const resourceName = {
     singular: "invoice",
@@ -229,6 +221,13 @@ export default function InvoicesListPage() {
     newParams.set("page", "1");
     setSearchParams(newParams);
   }, [searchParams, setSearchParams]);
+
+  const handleRegenerate = () => {
+    setConfirmRegenerate(false);
+    const fd = new FormData();
+    fd.append("intent", "regenerate_invoices");
+    submit(fd, { method: "post" });
+  };
 
   const handleSyncPastOrders = () => {
     const fd = new FormData();
@@ -331,11 +330,36 @@ export default function InvoicesListPage() {
       }}
       secondaryActions={[
         {
+          content: isRegenerating ? "Regenerating..." : "Regenerate Invoices",
+          onAction: () => setConfirmRegenerate(true),
+          loading: isRegenerating,
+        },
+        {
           content: "Export GSTR-1 for CA",
           url: "/app/reports",
         },
       ]}
     >
+      <Modal
+        open={confirmRegenerate}
+        onClose={() => setConfirmRegenerate(false)}
+        title="Regenerate invoices from Shopify?"
+        primaryAction={{ content: "Regenerate", destructive: true, onAction: handleRegenerate }}
+        secondaryActions={[{ content: "Cancel", onAction: () => setConfirmRegenerate(false) }]}
+      >
+        <Modal.Section>
+          <BlockStack gap="200">
+            <Text as="p">
+              This replaces the amounts, tax and customer details on existing invoices using current
+              Shopify data. Invoice numbers and dates stay the same. This cannot be undone.
+            </Text>
+            <Text as="p">
+              Invoices with credit notes are skipped. On live stores, invoices from earlier months are
+              also skipped because they may already be sent to customers or filed.
+            </Text>
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
       <BlockStack gap="400">
         {actionData?.success !== undefined && (
           <Banner tone={actionData.success ? "success" : "critical"} onDismiss={() => {}}>

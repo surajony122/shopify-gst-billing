@@ -8,8 +8,10 @@ import {
   getStateCodeFromName,
   resolveItemGstRate,
   resolveShippingGstRate,
+  cleanStateName,
   validateGSTINFormat,
 } from "./gst-engine";
+import { getReturnPeriodRange } from "./gstr1-exporter.server";
 
 const SHIPPING_SAC = "996812";
 const GSTIN_KEYS = ["gstin", "gst_number", "gst_in", "tax_id"];
@@ -88,6 +90,7 @@ export function normalizeWebhookOrder(order: any): NormalizedOrder {
 const gidNumber = (gid?: string | null) => gid?.split("/").pop() || null;
 
 export function normalizeGraphqlOrder(order: any): NormalizedOrder {
+  const customerName = `${order.customer?.firstName || ""} ${order.customer?.lastName || ""}`.trim();
   return {
     id: gidNumber(order.id) as string,
     orderNumber: order.name?.replace("#", "") || (gidNumber(order.id) as string),
@@ -95,7 +98,12 @@ export function normalizeGraphqlOrder(order: any): NormalizedOrder {
     taxesIncluded: Boolean(order.taxesIncluded),
     shippingAmount: money(order.shippingLine?.discountedPriceSet?.shopMoney?.amount),
     totalPaid: order.totalPriceSet ? money(order.totalPriceSet.shopMoney?.amount) : undefined,
-    province: order.shippingAddress?.province,
+    province: order.shippingAddress?.province || order.billingAddress?.province,
+    customerName: customerName || order.shippingAddress?.name,
+    email: order.email,
+    phone: order.phone || order.shippingAddress?.phone,
+    shippingAddress: order.shippingAddress,
+    billingAddress: order.billingAddress,
     attributes: (order.customAttributes || []).map((a: any) => ({ name: a.key, value: a.value })),
     lines: (order.lineItems?.nodes || []).map((item: any) => ({
       title: item.title,
@@ -118,17 +126,8 @@ function findAttribute(order: NormalizedOrder, keys: string[]): string | null {
   return match?.value?.trim() || null;
 }
 
-/**
- * Creates the GST invoice for an order. Safe to call repeatedly: an order that
- * already has an invoice is left alone.
- */
-export async function createInvoiceForOrder(
-  shop: string,
-  order: NormalizedOrder
-): Promise<{ created: boolean; invoiceNumber?: string }> {
-  const existing = await prisma.invoice.findUnique({ where: { shopifyOrderId: order.id } });
-  if (existing) return { created: false, invoiceNumber: existing.invoiceNumber };
-
+/** Works out the tax, rules and buyer details for an order without saving anything. */
+async function prepareInvoice(shop: string, order: NormalizedOrder) {
   const [setting, catalog] = await Promise.all([
     prisma.storeSetting.findUnique({ where: { shop } }),
     prisma.hsnCatalog.findMany({ where: { shop } }),
@@ -216,6 +215,66 @@ export async function createInvoiceForOrder(
   );
   const usesB2BSeries = rules.isB2B && Boolean(setting?.b2bInvoicePrefix?.trim());
 
+  const fields = {
+    isB2B: Boolean(buyerGstin),
+    buyerGstin,
+    buyerTradeName:
+      findAttribute(order, COMPANY_KEYS) ||
+      order.customerName ||
+      (buyerGstin ? "B2B Business Buyer" : "Retail Customer"),
+    buyerEmail: order.email,
+    buyerPhone: order.phone,
+    shippingAddress: order.shippingAddress ?? {},
+    billingAddress: order.billingAddress ?? {},
+    placeOfSupplyState: tax.placeOfSupplyState,
+    placeOfSupplyCode: tax.buyerStateCode,
+    isInterState: tax.isInterState,
+    subtotalTaxable: tax.subtotalTaxable,
+    cgstTotal: tax.cgstTotal,
+    sgstTotal: tax.sgstTotal,
+    igstTotal: tax.igstTotal,
+    roundOffAmount: tax.roundOffAmount,
+    grandTotal: tax.grandTotal,
+    templateUsed: rules.selectedTemplate,
+    ewayBillRequired: rules.ewayBillRequired,
+    lineItems: {
+      create: tax.lineItems.map((li) => ({
+        title: li.title,
+        variantTitle: li.variantTitle,
+        sku: li.sku,
+        hsnCode: li.hsnCode,
+        quantity: li.quantity,
+        unitPrice: li.unitPrice,
+        discountAmount: li.discountAmount,
+        taxableValue: li.taxableValue,
+        gstRate: li.gstRate,
+        cgstRate: li.cgstRate,
+        cgstAmount: li.cgstAmount,
+        sgstRate: li.sgstRate,
+        sgstAmount: li.sgstAmount,
+        igstRate: li.igstRate,
+        igstAmount: li.igstAmount,
+        totalAmount: li.totalAmount,
+      })),
+    },
+  };
+
+  return { fields, rules, usesB2BSeries };
+}
+
+/**
+ * Creates the GST invoice for an order. Safe to call repeatedly: an order that
+ * already has an invoice is left alone.
+ */
+export async function createInvoiceForOrder(
+  shop: string,
+  order: NormalizedOrder
+): Promise<{ created: boolean; invoiceNumber?: string }> {
+  const existing = await prisma.invoice.findUnique({ where: { shopifyOrderId: order.id } });
+  if (existing) return { created: false, invoiceNumber: existing.invoiceNumber };
+
+  const { fields, rules, usesB2BSeries } = await prepareInvoice(shop, order);
+
   try {
     const invoiceNumber = await prisma.$transaction(async (tx) => {
       // Increment inside the transaction so simultaneous webhooks get different numbers.
@@ -231,53 +290,13 @@ export async function createInvoiceForOrder(
 
       await tx.invoice.create({
         data: {
+          ...fields,
           shop,
           shopifyOrderId: order.id,
           shopifyOrderNumber: order.orderNumber,
           invoiceNumber: number,
           financialYear: getCurrentFinancialYear(),
           orderDate: new Date(order.createdAt),
-          isB2B: Boolean(buyerGstin),
-          buyerGstin,
-          buyerTradeName:
-            findAttribute(order, COMPANY_KEYS) ||
-            order.customerName ||
-            (buyerGstin ? "B2B Business Buyer" : "Retail Customer"),
-          buyerEmail: order.email,
-          buyerPhone: order.phone,
-          shippingAddress: order.shippingAddress ?? {},
-          billingAddress: order.billingAddress ?? {},
-          placeOfSupplyState: tax.placeOfSupplyState,
-          placeOfSupplyCode: tax.buyerStateCode,
-          isInterState: tax.isInterState,
-          subtotalTaxable: tax.subtotalTaxable,
-          cgstTotal: tax.cgstTotal,
-          sgstTotal: tax.sgstTotal,
-          igstTotal: tax.igstTotal,
-          roundOffAmount: tax.roundOffAmount,
-          grandTotal: tax.grandTotal,
-          templateUsed: rules.selectedTemplate,
-          ewayBillRequired: rules.ewayBillRequired,
-          lineItems: {
-            create: tax.lineItems.map((li) => ({
-              title: li.title,
-              variantTitle: li.variantTitle,
-              sku: li.sku,
-              hsnCode: li.hsnCode,
-              quantity: li.quantity,
-              unitPrice: li.unitPrice,
-              discountAmount: li.discountAmount,
-              taxableValue: li.taxableValue,
-              gstRate: li.gstRate,
-              cgstRate: li.cgstRate,
-              cgstAmount: li.cgstAmount,
-              sgstRate: li.sgstRate,
-              sgstAmount: li.sgstAmount,
-              igstRate: li.igstRate,
-              igstAmount: li.igstAmount,
-              totalAmount: li.totalAmount,
-            })),
-          },
         },
       });
       return number;
@@ -288,4 +307,183 @@ export async function createInvoiceForOrder(
     if (error?.code === "P2002") return { created: false };
     throw error;
   }
+}
+
+// ---------- Reading orders from Shopify ----------
+
+const orderFields = (withCustomer: boolean) => `
+  id
+  name
+  createdAt
+  taxesIncluded
+  ${withCustomer ? `
+  email
+  phone
+  customer { firstName lastName }
+  shippingAddress { name phone address1 address2 city province zip country }
+  billingAddress { address1 address2 city province zip country }
+  ` : ""}
+  totalPriceSet { shopMoney { amount } }
+  shippingLine { discountedPriceSet { shopMoney { amount } } }
+  customAttributes { key value }
+  lineItems(first: 50) {
+    nodes {
+      title
+      variantTitle
+      sku
+      quantity
+      product { id }
+      variant { id }
+      originalUnitPriceSet { shopMoney { amount } }
+      discountAllocations { allocatedAmountSet { shopMoney { amount } } }
+    }
+  }
+`;
+
+export interface FetchedOrders {
+  orders: NormalizedOrder[];
+  customerDataAvailable: boolean;
+}
+
+/**
+ * Customer names and addresses are protected data. Without Shopify's approval the
+ * query is rejected, so it is retried without them and the caller is told.
+ */
+async function queryOrders(
+  admin: any,
+  buildQuery: (fields: string) => string,
+  pickNodes: (data: any) => any[]
+): Promise<FetchedOrders> {
+  const run = async (withCustomer: boolean) => {
+    const response = await admin.graphql(buildQuery(orderFields(withCustomer)));
+    const body = (await response.json()) as any;
+    if (body.errors?.length) {
+      throw new Error(body.errors[0]?.message || "Could not retrieve orders");
+    }
+    return pickNodes(body.data).filter(Boolean).map(normalizeGraphqlOrder);
+  };
+
+  try {
+    return { orders: await run(true), customerDataAvailable: true };
+  } catch {
+    return { orders: await run(false), customerDataAvailable: false };
+  }
+}
+
+export function fetchRecentOrders(admin: any): Promise<FetchedOrders> {
+  return queryOrders(
+    admin,
+    (fields) => `query { orders(first: 50, sortKey: CREATED_AT, reverse: true) { nodes { ${fields} } } }`,
+    (data) => data?.orders?.nodes || []
+  );
+}
+
+export function fetchOrdersByIds(admin: any, ids: string[]): Promise<FetchedOrders> {
+  const gids = ids.map((id) => `"gid://shopify/Order/${id}"`).join(",");
+  return queryOrders(
+    admin,
+    (fields) => `query { nodes(ids: [${gids}]) { ... on Order { ${fields} } } }`,
+    (data) => data?.nodes || []
+  );
+}
+
+/** Development stores only hold test orders, so their invoices are safe to rebuild freely. */
+export async function isDevelopmentStore(admin: any): Promise<boolean> {
+  try {
+    const response = await admin.graphql(`query { shop { plan { partnerDevelopment } } }`);
+    const body = (await response.json()) as any;
+    return body.data?.shop?.plan?.partnerDevelopment === true;
+  } catch {
+    return false;
+  }
+}
+
+// ---------- Regenerating invoices ----------
+
+export interface RegenerateResult {
+  regenerated: number;
+  skippedCreditNotes: number;
+  skippedEarlierMonths: number;
+  skippedMissingOrders: number;
+  customerDataAvailable: boolean;
+}
+
+/**
+ * Rebuilds invoices from current Shopify data, keeping each invoice's number and date.
+ *
+ * Invoices are never rebuilt if they have a credit note, because the note's figures
+ * depend on them. On live stores invoices from earlier months are also left alone,
+ * because they may already have been sent to customers or filed in a GST return.
+ */
+export async function regenerateInvoices(
+  shop: string,
+  fetchOrders: (ids: string[]) => Promise<FetchedOrders>,
+  isDevStore: boolean,
+  now: Date = new Date()
+): Promise<RegenerateResult> {
+  const invoices = await prisma.invoice.findMany({
+    where: { shop },
+    include: { _count: { select: { creditNotes: true } } },
+    orderBy: { invoiceDate: "asc" },
+  });
+
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const { start: currentMonthStart } = getReturnPeriodRange(ist.getUTCMonth() + 1, ist.getUTCFullYear());
+
+  const result: RegenerateResult = {
+    regenerated: 0,
+    skippedCreditNotes: 0,
+    skippedEarlierMonths: 0,
+    skippedMissingOrders: 0,
+    customerDataAvailable: true,
+  };
+
+  const eligible = invoices.filter((invoice) => {
+    if (invoice._count.creditNotes > 0) {
+      result.skippedCreditNotes += 1;
+      return false;
+    }
+    if (!isDevStore && invoice.invoiceDate < currentMonthStart) {
+      result.skippedEarlierMonths += 1;
+      return false;
+    }
+    return true;
+  });
+
+  for (let i = 0; i < eligible.length; i += 50) {
+    const batch = eligible.slice(i, i + 50);
+    const { orders, customerDataAvailable } = await fetchOrders(batch.map((inv) => inv.shopifyOrderId));
+    if (!customerDataAvailable) result.customerDataAvailable = false;
+    const ordersById = new Map(orders.map((order) => [order.id, order]));
+
+    for (const invoice of batch) {
+      const fetched = ordersById.get(invoice.shopifyOrderId);
+      if (!fetched) {
+        result.skippedMissingOrders += 1;
+        continue;
+      }
+
+      // Without customer access, keep what the invoice already knows about the buyer.
+      const order: NormalizedOrder = customerDataAvailable
+        ? fetched
+        : {
+            ...fetched,
+            province: (invoice.shippingAddress as any)?.province || cleanStateName(invoice.placeOfSupplyState),
+            customerName: invoice.buyerTradeName,
+            email: invoice.buyerEmail,
+            phone: invoice.buyerPhone,
+            shippingAddress: invoice.shippingAddress,
+            billingAddress: invoice.billingAddress,
+          };
+
+      const { fields } = await prepareInvoice(shop, order);
+      await prisma.$transaction([
+        prisma.invoiceLineItem.deleteMany({ where: { invoiceId: invoice.id } }),
+        prisma.invoice.update({ where: { id: invoice.id }, data: fields }),
+      ]);
+      result.regenerated += 1;
+    }
+  }
+
+  return result;
 }
