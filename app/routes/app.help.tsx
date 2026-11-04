@@ -61,7 +61,7 @@ export default function HelpPage() {
           <List>
             <List.Item><strong>Same state as you:</strong> the invoice uses CGST + SGST.</List.Item>
             <List.Item><strong>Different state:</strong> the invoice uses IGST.</List.Item>
-            <List.Item><strong>Order already carries a valid GSTIN:</strong> it becomes a B2B invoice with its own number series. The app does not add a GSTIN field to your checkout yet.</List.Item>
+            <List.Item><strong>Order already carries a valid GSTIN:</strong> if the order has a <code>gstin</code> attribute, it becomes a B2B invoice with its own number series. The app does not add a GSTIN field to your checkout yet.</List.Item>
             <List.Item><strong>Prices include tax in Shopify:</strong> tax is worked out from inside the price, so the invoice total matches what was paid.</List.Item>
             <List.Item><strong>Shipping:</strong> it is added as its own line and taxed using your Tax Rules setting.</List.Item>
           </List>

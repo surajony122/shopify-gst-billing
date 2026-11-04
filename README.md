@@ -53,7 +53,6 @@ A complete, production-grade **Goods and Services Tax (GST)** Invoicing, e-Invoi
 │   ├── shopify.server.ts                # Shopify App Remix configuration
 │   └── root.tsx                         # Root layout with Shopify Polaris
 ├── extensions/
-│   └── gst-checkout-extension/          # Storefront Checkout UI Extension (GSTIN collector)
 ├── prisma/
 │   └── schema.prisma                    # PostgreSQL schema (Stores, Invoices, HSNs, etc.)
 ├── render.yaml                          # Render.com Infrastructure-as-Code Blueprint
