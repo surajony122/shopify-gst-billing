@@ -37,6 +37,7 @@ const shopify = shopifyApp({
   isEmbeddedApp: true,
   future: {
     unstable_newEmbeddedAuthStrategy: true,
+    expiringOfflineAccessTokens: true,
   },
   billing: {
     [GROWTH_PLAN]: {
