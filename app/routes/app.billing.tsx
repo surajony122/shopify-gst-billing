@@ -8,10 +8,12 @@ import { isDevelopmentStore } from "../services/invoice-builder.server";
 import { getPlanUsage, savePlan } from "../services/plans.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session, billing, admin } = await authenticate.admin(request);
+  const { session, billing } = await authenticate.admin(request);
   let billingUnavailable = false;
   try {
-    const check = await billing.check({ plans: [GROWTH_PLAN, PRO_PLAN], isTest: await isDevelopmentStore(admin) });
+    // isTest: true also counts test charges. Shopify makes charges on development and review
+    // stores test charges, and without this the app ignores a plan the reviewer just approved.
+    const check = await billing.check({ plans: [GROWTH_PLAN, PRO_PLAN], isTest: true });
     // Also corrects the saved plan right after returning from Shopify's approval page.
     await savePlan(session.shop, check.appSubscriptions[0]?.name || "Free");
   } catch (error) {
@@ -43,7 +45,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   if (plan === "Free") {
-    const check = await billing.check({ plans: [GROWTH_PLAN, PRO_PLAN], isTest });
+    const check = await billing.check({ plans: [GROWTH_PLAN, PRO_PLAN], isTest: true });
     for (const subscription of check.appSubscriptions) {
       await billing.cancel({ subscriptionId: subscription.id, isTest, prorate: true });
     }
